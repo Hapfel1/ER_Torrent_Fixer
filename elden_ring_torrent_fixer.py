@@ -308,7 +308,7 @@ class TorrentStateFixer:
         if not messagebox.askyesno(
             "Confirm",
             "This will modify your save file.\n"
-            "A backup will be created automatically.\n\n"
+            "A backup will be created automatically next to your original save file.\n\n"
             "Is Elden Ring closed?\n\n"
             "Continue?"
         ):
