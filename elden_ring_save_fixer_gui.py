@@ -249,9 +249,10 @@ class SaveFileFixer:
                 
                 name = slot.get_character_name() or f"Character {slot_idx + 1}"
                 map_id = slot.get_slot_map_id()
-                map_str = map_id.to_string() if map_id else "Unknown"
+                # Display in decimal format
+                map_str = map_id.to_string_decimal() if map_id else "Unknown"
                 
-                # Format: "Slot 1 | IfLucadidthat | Map: 00_00_01_0A"
+                # Format: "Slot 1 | Testname | Map: 60 42 36 00"
                 display_text = f"Slot {slot_idx + 1:2d} | {name:16s} | Map: {map_str}"
                 self.char_listbox.insert(tk.END, display_text)
                 
@@ -286,7 +287,8 @@ class SaveFileFixer:
         info = f"Character: {name}\n"
         info += f"Slot: {slot_idx + 1}\n"
         if map_id:
-            info += f"Current Map: {map_id.to_string()}\n"
+            # Display in decimal coordinate format
+            info += f"Current Map: {map_id.to_string_decimal()}\n"
         
         # Check Horse status
         horse = slot.get_horse_data()
@@ -300,7 +302,7 @@ class SaveFileFixer:
                 info += "Will fix: Change State from Active to Dead"
             # Check if Torrent is dead (HP=0 OR State=Dead OR State=0)
             elif horse.hp == 0 or horse.state == HorseState.DEAD or horse.state.value == 0:
-                info += "\n✓ Torrent is dead\n"
+                info += "\nTorrent is dead\n"
                 info += "No issues detected"
             else:
                 # Check DLC location
@@ -309,8 +311,8 @@ class SaveFileFixer:
                     info += "Will fix: Teleport to Limgrave (60 42 36 00)"
                 else:
                     info += "\nNo issues detected\n"
-                    info += "\nYou can still teleport to Limgrave if you are\n"
-                    info += "experiencing random infinite loading screens."
+                    info += "\nYou can still teleport to Limgrave if\n"
+                    info += "you are experiencing random infinite loading screens."
         else:
             info += "\nCould not find Torrent data"
         

@@ -65,8 +65,10 @@ class MapID:
         return f"{self.data[0]:02X}_{self.data[1]:02X}_{self.data[2]:02X}_{self.data[3]:02X}"
     
     def to_string_decimal(self) -> str:
-        """Display as decimal values (like 010 Editor CSV format)"""
-        return f"{self.data[0]:d} {self.data[1]:d} {self.data[2]:d} {self.data[3]:d}"
+        """Display as decimal values in map coordinate format (reversed byte order)"""
+        # Map format is m{AA}_{BB}_{CC}_{DD}
+        # Bytes are stored as [DD, CC, BB, AA]
+        return f"{self.data[3]:d} {self.data[2]:d} {self.data[1]:d} {self.data[0]:d}"
     
     def is_dlc(self) -> bool:
         """
