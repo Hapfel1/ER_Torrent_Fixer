@@ -16,11 +16,20 @@ class SaveFileFixer:
     def __init__(self, root):
         self.root = root
         self.root.title("Elden Ring Save File Fixer")
-        self.root.geometry("700x700")
+        self.root.geometry("700x800")
         self.root.resizable(False, False)
         
         style = ttk.Style()
         style.theme_use('clam')
+
+        self.pink_colors = {
+            'pink': '#F5A9B8',
+            'text': '#1f1f1f'
+        }
+        style.configure('Accent.TButton', padding=6)
+        style.map('Accent.TButton',
+                  background=[('active', self.pink_colors['pink'])],
+                  foreground=[('active', self.pink_colors['text'])])
         
         self.default_save_path = Path(os.environ.get('APPDATA', '')) / "EldenRing"
         self.save_file = None
@@ -28,7 +37,6 @@ class SaveFileFixer:
         
         self.setup_ui()
     def setup_ui(self):
-        # Title
         title_frame = ttk.Frame(self.root, padding="15")
         title_frame.pack(fill=tk.X)
         
@@ -55,18 +63,18 @@ class SaveFileFixer:
         
         ttk.Entry(path_frame, textvariable=self.file_path_var, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         
-        ttk.Button(path_frame, text="Browse", command=self.browse_file, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(path_frame, text="Auto-Find", command=self.auto_detect, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(path_frame, text="Browse", command=self.browse_file, width=10, style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(path_frame, text="Auto-Find", command=self.auto_detect, width=10, style='Accent.TButton').pack(side=tk.LEFT, padx=2)
         
-        ttk.Button(file_frame, text="Load Characters", command=self.load_characters, width=20).pack(pady=(10, 0))
+        ttk.Button(file_frame, text="Load Characters", command=self.load_characters, width=20, style='Accent.TButton').pack(pady=(10, 0))
         
         # Character Selection
         char_frame = ttk.LabelFrame(self.root, text="Step 2: Select Character to Fix", padding="15")
-        char_frame.pack(fill=tk.X, padx=15, pady=10) 
+        char_frame.pack(fill=tk.X, padx=15, pady=12) 
         
         # Character list 
         list_frame = ttk.Frame(char_frame)
-        list_frame.pack(fill=tk.X) 
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -75,7 +83,7 @@ class SaveFileFixer:
             list_frame,
             yscrollcommand=scrollbar.set,
             font=('Consolas', 10),
-            height=6,  
+            height=8,  
             selectmode=tk.SINGLE
         )
         self.char_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)  
@@ -89,14 +97,14 @@ class SaveFileFixer:
         
         self.info_text = tk.Text(
             info_label_frame,
-            height=10,  
+            height=14,  
             width=80,
             font=('Consolas', 9),
             bg='#f0f0f0',
             wrap=tk.WORD,
             state=tk.DISABLED
         )
-        self.info_text.pack(fill=tk.BOTH, expand=True)  
+        self.info_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Fix button
         button_frame = ttk.Frame(self.root, padding="15")
@@ -107,11 +115,12 @@ class SaveFileFixer:
             text="Fix Selected Character",
             command=self.fix_character,
             state=tk.DISABLED,
-            width=30
+            width=30,
+            style='Accent.TButton'
         )
         self.fix_button.pack(side=tk.LEFT, padx=5)
         
-        ttk.Button(button_frame, text="Restore Backup", command=self.restore_backup, width=20).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Restore Backup", command=self.restore_backup, width=20, style='Accent.TButton').pack(side=tk.LEFT, padx=5)
         
         # Status
         status_frame = ttk.Frame(self.root)
