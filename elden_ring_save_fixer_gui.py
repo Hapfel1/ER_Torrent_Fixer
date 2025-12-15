@@ -1,6 +1,7 @@
 """
 Elden Ring Save File Fixer - Character Selection GUI
 Fixes Torrent bug and DLC location issues
+Shows all 10 character slots correctly
 """
 
 import tkinter as tk
@@ -36,6 +37,7 @@ class SaveFileFixer:
         self.selected_character = None
         
         self.setup_ui()
+    
     def setup_ui(self):
         title_frame = ttk.Frame(self.root, padding="15")
         title_frame.pack(fill=tk.X)
@@ -217,6 +219,7 @@ class SaveFileFixer:
         
         ttk.Button(dialog, text="Select", command=select_save).pack(pady=10)
         listbox.bind('<Double-Button-1>', lambda e: select_save())
+    
     def load_characters(self):
         save_path = self.file_path_var.get()
         
@@ -258,14 +261,10 @@ class SaveFileFixer:
                 
                 name = slot.get_character_name() or f"Character {slot_idx + 1}"
                 map_id = slot.get_slot_map_id()
-                # Display in decimal format
                 map_str = map_id.to_string_decimal() if map_id else "Unknown"
                 
-                # Format: "Slot 1 | Testname | Map: 60 42 36 00"
                 display_text = f"Slot {slot_idx + 1:2d} | {name:16s} | Map: {map_str}"
                 self.char_listbox.insert(tk.END, display_text)
-                
-                # Store slot index as data
                 self.char_listbox.itemconfig(tk.END, {'fg': 'black'})
             
             self.status_var.set(f"Loaded {len(active_slots)} character(s)")
@@ -296,40 +295,45 @@ class SaveFileFixer:
         info = f"Character: {name}\n"
         info += f"Slot: {slot_idx + 1}\n"
         if map_id:
-            # Display in decimal coordinate format
             info += f"Current Map: {map_id.to_string_decimal()}\n"
         
-        # Check Horse status
+        # Check all issues upfront
+        issues_detected = []
+        
+        # Check 1: Torrent bug
         horse = slot.get_horse_data()
         if horse:
             info += f"\nTorrent HP: {horse.hp}\n"
             info += f"Torrent State: {horse.state.name if horse.state.value != 0 else 'DEAD'}\n"
             
-            # Check for BUG first (HP=0, State=Active)
             if horse.has_bug():
-                info += "\nTORRENT BUG DETECTED!\n"
-                info += "Will fix: Change State from Active to Dead"
-            # Check if Torrent is dead (HP=0 OR State=Dead OR State=0)
-            elif horse.hp == 0 or horse.state == HorseState.DEAD or horse.state.value == 0:
-                info += "\nTorrent is dead\n"
-                info += "No issues detected"
-            else:
-                # Check DLC location
-                if map_id and map_id.is_dlc():
-                    info += "\nDLC LOCATION DETECTED!\n"
-                    info += "Will fix: Teleport to Limgrave (60 42 36 00)"
-                else:
-                    info += "\nNo issues detected\n"
-                    info += "\nYou can still teleport to Limgrave if\n"
-                    info += "you are experiencing random infinite loading screens."
+                issues_detected.append("Torrent stuck loading bug")
         else:
-            info += "\nCould not find Torrent data"
+            info += "\nCould not find Torrent data\n"
+        
+        # Check 2: DLC location
+        if map_id and map_id.is_dlc():
+            issues_detected.append("DLC infinite loading (needs teleport)")
+        
+        # Display issues or status
+        if issues_detected:
+            info += "\n" + "="*40 + "\n"
+            info += "ISSUES DETECTED:\n"
+            info += "="*40 + "\n"
+            for issue in issues_detected:
+                info += f"  - {issue}\n"
+            info += "\nFix button will correct these issues"
+        else:
+            info += "\n" + "="*40 + "\n"
+            info += "NO ISSUES DETECTED\n"
+            info += "="*40 + "\n"
+            info += "\nYou can still teleport to Limgrave if\n"
+            info += "you are experiencing random infinite loading screens."
         
         self.info_text.config(state=tk.NORMAL)
         self.info_text.delete(1.0, tk.END)
         self.info_text.insert(1.0, info)
         self.info_text.config(state=tk.DISABLED)
-        
         
         self.fix_button.config(state=tk.NORMAL)
 
@@ -341,84 +345,80 @@ class SaveFileFixer:
         slot_idx = self.selected_character
         slot = self.save_file.characters[slot_idx]
         name = slot.get_character_name() or f"Character {slot_idx + 1}"
-        map_id = slot.get_slot_map_id()
+        
+        # Check what issues exist
+        has_any_issues = False
+        
         horse = slot.get_horse_data()
+        if horse and horse.has_bug():
+            has_any_issues = True
         
-        # Determine what needs fixing
-        has_torrent_bug = horse and horse.has_bug()
-        has_dlc_location = map_id and map_id.is_dlc()
-        no_issues = not has_torrent_bug and not has_dlc_location
+        map_id = slot.get_slot_map_id()
+        if map_id and map_id.is_dlc():
+            has_any_issues = True
         
-        # If no issues detected, ask user if they want to teleport anyway
-        if no_issues:
-            if not messagebox.askyesno(
-                "Manual Teleport",
-                f"Character: {name}\n\n"
-                f"No issues detected, but you can still teleport\n"
-                f"to Limgrave if you are experiencing loading problems.\n\n"
-                f"Teleport to Limgrave anyway?"
-            ):
-                return
-        else:
-            # Normal confirmation for detected issues
-            if not messagebox.askyesno(
-                "Confirm Fix",
+        # Confirmation dialog
+        if has_any_issues:
+            confirm_msg = (
                 f"Fix character: {name}\n\n"
-                f"A backup will be created automatically.\n"
+                f"Will fix detected issues:\n"
+                f"  - Torrent bug (if present)\n"
+                f"  - DLC teleport (if present)\n\n"
+                f"A backup will be created.\n"
                 f"Is Elden Ring closed?\n\n"
                 f"Continue?"
-            ):
-                return
+            )
+        else:
+            confirm_msg = (
+                f"Teleport character: {name}\n\n"
+                f"No issues detected.\n"
+                f"Will teleport to Limgrave (Church of Elleh)\n"
+                f"to fix potential infinite loading screens.\n\n"
+                f"A backup will be created.\n"
+                f"Is Elden Ring closed?\n\n"
+                f"Continue?"
+            )
+        
+        if not messagebox.askyesno("Confirm Fix", confirm_msg):
+            return
         
         try:
-            # Create backup (overwrite if exists)
             save_path = self.file_path_var.get()
             backup_path = save_path + ".backup"
             self.status_var.set("Creating backup...")
             self.root.update()
             
-            # Remove old backup if it exists
             if os.path.exists(backup_path):
                 os.remove(backup_path)
             
             shutil.copy2(save_path, backup_path)
             
-            fixed_something = False
-            fix_description = ""
+            fixed_issues = []
             
-            # Check Torrent bug first
-            if has_torrent_bug:
+            # Fix 1: Torrent Bug
+            if horse and horse.has_bug():
                 self.status_var.set("Fixing Torrent bug...")
                 self.root.update()
-                
                 horse.fix_bug()
                 slot.write_horse_data(horse)
-                
-                fix_description = "Torrent bug fixed (State: Active → Dead)"
-                fixed_something = True
+                fixed_issues.append("Torrent bug")
             
-            # DLC location OR manual teleport
-            if has_dlc_location or no_issues:
+            # Fix 2: DLC Location or Always Teleport
+            has_dlc_location = map_id and map_id.is_dlc()
+            
+            # Always teleport if no other fixes, or if DLC location
+            if has_dlc_location or not fixed_issues:
                 self.status_var.set("Teleporting to Limgrave...")
                 self.root.update()
                 
-                # Teleport to Limgrave: m60_42_36_00 (The First Step)
-                # 010 Editor shows: "60 42 36 00" - these are decimal values
                 new_map = MapID(bytes([0, 36, 42, 60]))
-                
-                # Write to slot
                 map_offset = slot.data_start + 0x4
                 self.save_file.data[map_offset:map_offset+4] = new_map.to_bytes()
                 
                 if has_dlc_location:
-                    fix_description = f"DLC location fixed\nOld Map: {map_id.to_string()}\nNew Map: {new_map.to_string()} (Limgrave)"
+                    fixed_issues.append("DLC location")
                 else:
-                    fix_description = f"Manual teleport\nOld Map: {map_id.to_string()}\nNew Map: {new_map.to_string()} (Limgrave)"
-                fixed_something = True
-            
-            if not fixed_something:
-                messagebox.showinfo("No Changes", f"No changes were made to '{name}'")
-                return
+                    fixed_issues.append("Teleported to Limgrave")
             
             # Recalculate checksums
             self.status_var.set("Recalculating checksums...")
@@ -432,14 +432,14 @@ class SaveFileFixer:
             
             self.status_var.set("Fix complete!")
             
+            issues_text = '\n'.join([f"  - {issue}" for issue in fixed_issues])
             messagebox.showinfo(
                 "Success!",
                 f"Character fixed: {name}\n\n"
-                f"{fix_description}\n\n"
+                f"Actions taken:\n{issues_text}\n\n"
                 f"Backup: {os.path.basename(backup_path)}"
             )
             
-            # Reload to show updated info
             self.load_characters()
             
         except Exception as e:
@@ -472,7 +472,6 @@ class SaveFileFixer:
                 messagebox.showinfo("Success", "Backup restored successfully!")
                 self.status_var.set("Backup restored")
                 
-                # Reload
                 if self.save_file:
                     self.load_characters()
             except Exception as e:

@@ -66,37 +66,23 @@ class MapID:
     
     def to_string_decimal(self) -> str:
         """Display as decimal values in map coordinate format (reversed byte order)"""
-        # Map format is m{AA}_{BB}_{CC}_{DD}
-        # Bytes are stored as [DD, CC, BB, AA]
         return f"{self.data[3]:d} {self.data[2]:d} {self.data[1]:d} {self.data[0]:d}"
     
     def is_dlc(self) -> bool:
-        """
-        Check if this is a DLC map
-        
-        DLC maps are:
-        - m61 maps (DLC overworld): map_prefix = 61 (0x3D)
-        - m20-m43 maps (DLC areas): map_prefix = 20-67 (0x14-0x43)
-        """
+        """Check if this is a DLC map"""
         map_prefix = self.data[3]
         
-        # m61 (DLC overworld)
         if map_prefix == 0x3D:  # 61 decimal
             return True
             
-        # m20-m43 (DLC dungeons/areas)
-        # 0x14 = 20, 0x2B = 43
-        if 0x14 <= map_prefix <= 0x2B:
+        if 0x14 <= map_prefix <= 0x2B:  # 20-43
             return True
             
         return False
 
 @dataclass
 class RideGameData:
-    """
-    Torrent/Horse data
-    Length: 0x28 (40 bytes)
-    """
+    """Torrent/Horse data - Length: 0x28 (40 bytes)"""
     coordinates: FloatVector3
     map_id: MapID
     angle: FloatVector4
@@ -134,10 +120,7 @@ class RideGameData:
 
 @dataclass
 class CSPlayerCoords:
-    """
-    Player coordinates structure
-    Length: 0x3D (61 bytes)
-    """
+    """Player coordinates structure - Length: 0x3D (61 bytes)"""
     coordinates: FloatVector3
     map_id: MapID
     angle: FloatVector4
@@ -160,25 +143,20 @@ class CSPlayerCoords:
         return bytes(result)
 
 class CharacterSlot:
-    """
-    Parses a single character slot by walking through the structure
-    """
+    """Parses a single character slot"""
     
     def __init__(self, data: bytearray, slot_index: int):
         self.data = data
         self.slot_index = slot_index
         
-        # Constants
         self.HEADER_SIZE = 0x300
         self.SLOT_SIZE = 0x280000
         self.CHECKSUM_SIZE = 0x10
         
-        # Calculate base offset
         self.slot_offset = self.HEADER_SIZE + (slot_index * (self.SLOT_SIZE + self.CHECKSUM_SIZE))
         self.checksum_offset = self.slot_offset
         self.data_start = self.slot_offset + self.CHECKSUM_SIZE
         
-        # We'll calculate these by parsing
         self.version: Optional[int] = None
         self.map_id: Optional[MapID] = None
         self.gaitem_count: int = 0
@@ -187,60 +165,46 @@ class CharacterSlot:
         self.horse_offset: int = 0
         self.player_coords_offset: int = 0
         
-        # Parse the structure
         self._parse_structure()
     
     def _parse_structure(self):
-        """
-        Parse through the structure to find exact offsets.
-        """
-        
+        """Parse through the structure to find exact offsets"""
         offset = self.data_start
         
-        # Read Version (4 bytes)
         self.version = struct.unpack('<I', self.data[offset:offset+4])[0]
         offset += 4
         
-        # Read MapID (4 bytes)
         self.map_id = MapID.from_bytes(self.data, offset)
         offset += 4
         
-        # Skip unk0x8 (0x18 bytes)
         offset += 0x18
         
-        # Calculate GaitemMap count based on version
         if self.version <= 81:
             self.gaitem_count = 0x13FE
         else:
             self.gaitem_count = 0x1400
         
-        # Parse GaitemHandleMap (variable sized items)
         for i in range(self.gaitem_count):
             gaitem_handle = struct.unpack('<I', self.data[offset:offset+4])[0]
-            offset += 4  # GaitemHandle
-            offset += 4  # ItemID
+            offset += 4
+            offset += 4
             
-            # Check for additional data based on type
             if gaitem_handle != 0:
                 handle_type = gaitem_handle & 0xF0000000
-                if handle_type == 0x80000000:  # Weapon
-                    offset += 4  # unk0x10
-                    offset += 4  # unk0x14
-                    offset += 4  # AOWGaitemHandle
-                    offset += 1  # unk0x1c
-                elif handle_type == 0x90000000:  # Armor
-                    offset += 4  # unk0x10
-                    offset += 4  # unk0x14
+                if handle_type == 0x80000000:
+                    offset += 4
+                    offset += 4
+                    offset += 4
+                    offset += 1
+                elif handle_type == 0x90000000:
+                    offset += 4
+                    offset += 4
         
         self.gaitem_map_end = offset
-        
-        # PlayerGameData (0x1B0 bytes)
         self.player_data_offset = offset
         
-        
-        # Search for RideGameData using signature
-        search_start = self.data_start + 0x10000  # Start at 64KB
-        search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)  # End at 320KB
+        search_start = self.data_start + 0x10000
+        search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)
         
         self.horse_offset = self._find_horse_data(search_start, search_end)
         
@@ -253,47 +217,31 @@ class CharacterSlot:
         self.player_coords_offset = self._find_player_coords(search_start, search_end)
     
     def _find_horse_data(self, start: int, end: int) -> int:
-        """
-        Find RideGameData by searching for distinctive Torrent patterns.
+        """Find RideGameData by searching for distinctive Torrent patterns"""
         
-        There are TWO valid patterns:
-        1. INACTIVE (stored): coords(0,0,0) + MapID(FFFFFFFF) + angle(0,0,0,0) + HP + State=1
-        2. ACTIVE (in-world): real coords + real MapID + real angle + HP + State=1/3/13
-        
-        Pattern 1 is most common. Pattern 2 occurs when Torrent was last summoned.
-        """
-        
-        # First, try to find Pattern 1 (inactive/stored) - most reliable signature
         for offset in range(start, end - RideGameData.SIZE):
-            # Check coords (12 bytes of zeros)
             if self.data[offset:offset+12] != bytes(12):
                 continue
             
-            # Check MapID = 0xFFFFFFFF (stored state signature)
             if self.data[offset+12:offset+16] != bytes([0xFF, 0xFF, 0xFF, 0xFF]):
                 continue
             
-            # Check angle (16 bytes of zeros)
             if self.data[offset+16:offset+32] != bytes(16):
                 continue
             
             try:
-                # Read HP and State
                 hp = struct.unpack('<I', self.data[offset+32:offset+36])[0]
                 state = struct.unpack('<I', self.data[offset+36:offset+40])[0]
                 
-                # Valid inactive Torrent: HP > 0, State = 1
                 if hp > 0 and hp < 5000 and state == 1:
                     return offset
             except:
                 continue
         
-        # If Pattern 1 not found, try Pattern 2 (active/in-world)
         for offset in range(start, end - RideGameData.SIZE):
             try:
                 horse = RideGameData.from_bytes(self.data, offset)
                 
-                # Valid active Torrent signature:
                 coords_not_zero = not (abs(horse.coordinates.x) < 0.01 and 
                                       abs(horse.coordinates.y) < 0.01 and 
                                       abs(horse.coordinates.z) < 0.01)
@@ -301,18 +249,13 @@ class CharacterSlot:
                                    abs(horse.coordinates.y) < 10000 and
                                    abs(horse.coordinates.z) < 10000)
                 
-                # 2. Valid MapID
                 map_bytes = horse.map_id.to_bytes()
                 valid_map = (map_bytes != bytes([0, 0, 0, 0]) and 
                            map_bytes != bytes([0xFF, 0xFF, 0xFF, 0xFF]))
                 
-                # 3. HP in valid range (can be 0 if dismissed/dead)
                 valid_hp = 0 <= horse.hp < 5000
-                
-                # 4. State is valid
                 valid_state = horse.state in [HorseState.INACTIVE, HorseState.DEAD, HorseState.ACTIVE]
                 
-                # 5. At least one coordinate component should be non-trivial
                 significant_coords = (abs(horse.coordinates.x) > 1.0 or
                                     abs(horse.coordinates.y) > 1.0 or
                                     abs(horse.coordinates.z) > 1.0)
@@ -326,32 +269,25 @@ class CharacterSlot:
         return 0
     
     def _find_player_coords(self, start: int, end: int) -> int:
-        """
-        Find CSPlayerCoords by looking for valid structure.
-        Pattern observed: coords + valid MapID + angle with pattern (0, Y, 0, 0)
-        """
+        """Find CSPlayerCoords by looking for valid structure"""
         for offset in range(start, end - CSPlayerCoords.MIN_SIZE):
             try:
                 coords = CSPlayerCoords.from_bytes(self.data, offset)
                 
-                # The MapID should not be all zeros or all FFs
                 map_bytes = coords.map_id.data
                 if map_bytes == bytes([0, 0, 0, 0]) or map_bytes == bytes([0xFF, 0xFF, 0xFF, 0xFF]):
                     continue
                 
-                # Coordinates should be reasonable game world bounds
                 if not (abs(coords.coordinates.x) < 50000 and
                         abs(coords.coordinates.y) < 50000 and
                         abs(coords.coordinates.z) < 50000):
                     continue
                 
-                
-                if not (abs(coords.angle.x) < 0.01 and  # X ~= 0
-                        abs(coords.angle.z) < 0.01 and  # Z ~= 0
-                        abs(coords.angle.w) < 0.01 and  # W ~= 0
-                        abs(coords.angle.y) < 7.0):     # Y is rotation (usually -π to π)
+                if not (abs(coords.angle.x) < 0.01 and
+                        abs(coords.angle.z) < 0.01 and
+                        abs(coords.angle.w) < 0.01 and
+                        abs(coords.angle.y) < 7.0):
                     continue
-                
                 
                 return offset
                 
@@ -361,29 +297,17 @@ class CharacterSlot:
         return 0 
     
     def get_character_name(self) -> Optional[str]:
-        """
-        Get character name from PlayerGameData.
-        CharacterName is at PlayerGameData + 0x94 (wchar_t[0x10])
-        32 bytes (16 UTF-16LE characters) for the name
-        """
+        """Get character name from PlayerGameData at offset +0x94"""
         try:
-            # Name is at offset 0x94 in PlayerGameData
             name_offset = self.player_data_offset + 0x94
-            
-            # Read 32 bytes (16 UTF-16LE characters)
             name_bytes = self.data[name_offset:name_offset + 32]
-            
-            # Decode as UTF-16LE
             name = name_bytes.decode('utf-16le', errors='ignore')
             
-            # Split at null terminator
             if '\x00' in name:
                 name = name.split('\x00')[0]
             
-            # Clean and validate
             name = name.strip()
             
-            # Check if it's a valid name (printable, reasonable length)
             if name and all(c.isprintable() or c.isspace() for c in name) and 1 <= len(name) <= 16:
                 return name
             
@@ -393,11 +317,7 @@ class CharacterSlot:
         return None
     
     def get_slot_map_id(self) -> Optional[MapID]:
-        """
-        Get the M MapID from the slot header (not Horse MapID).
-        This is the character's spawn/current map.
-        Located at data_start + 0x4 (after Version)
-        """
+        """Get the M MapID from the slot header"""
         try:
             map_id_offset = self.data_start + 0x4
             return MapID.from_bytes(self.data, map_id_offset)
@@ -405,17 +325,13 @@ class CharacterSlot:
             return None
     
     def get_horse_data(self) -> Optional[RideGameData]:
-        """
-        Get parsed RideGameData.
-        If Torrent offset is found, always return the data.
-        """
+        """Get parsed RideGameData"""
         if self.horse_offset > 0:
             try:
                 horse = RideGameData.from_bytes(self.data, self.horse_offset)
                 return horse 
             except:
                 pass
-        return None
         return None
     
     def write_horse_data(self, horse: RideGameData):
@@ -455,17 +371,19 @@ class EldenRingSaveFile:
         with open(filepath, 'rb') as f:
             self.data = bytearray(f.read())
         
-        # Parse character slots
+        # Parse ALL character slots (not just marked active)
+        # This fixes the 7/10 character detection issue
         self.characters: List[Optional[CharacterSlot]] = []
         for i in range(self.MAX_CHARACTER_COUNT):
-            if self.is_slot_active(i):
-                try:
-                    slot = CharacterSlot(self.data, i)
+            try:
+                slot = CharacterSlot(self.data, i)
+                # Check if slot has valid character name
+                name = slot.get_character_name()
+                if name and name.strip():
                     self.characters.append(slot)
-                except Exception as e:
-                    print(f"Warning: Failed to parse slot {i}: {e}")
+                else:
                     self.characters.append(None)
-            else:
+            except Exception as e:
                 self.characters.append(None)
     
     def is_slot_active(self, slot_index: int) -> bool:
@@ -475,8 +393,12 @@ class EldenRingSaveFile:
         return False
     
     def get_active_slots(self) -> List[int]:
-        """Get list of active slot indices"""
-        return [i for i in range(self.MAX_CHARACTER_COUNT) if self.is_slot_active(i)]
+        """Get list of active slot indices (slots with valid characters)"""
+        active = []
+        for i in range(self.MAX_CHARACTER_COUNT):
+            if self.characters[i] is not None:
+                active.append(i)
+        return active
     
     def recalculate_checksums(self):
         """Recalculate MD5 checksums for all slots and USER_DATA_10"""
@@ -485,14 +407,10 @@ class EldenRingSaveFile:
         for slot_idx in self.get_active_slots():
             slot = self.characters[slot_idx]
             if slot:
-                # Calculate MD5 of character data
                 char_data = self.data[slot.data_start:slot.data_start + self.CHARACTER_FILE_SIZE]
                 md5_hash = hashlib.md5(char_data).digest()
-                
-                # Write checksum
                 self.data[slot.checksum_offset:slot.checksum_offset + self.CHECKSUM_SIZE] = md5_hash
         
-        # Recalculate USER_DATA_10
         offset = self.HEADER_SIZE + (self.CHARACTER_FILE_SIZE * self.MAX_CHARACTER_COUNT)
         userdata_start = offset + self.CHECKSUM_SIZE
         userdata = self.data[userdata_start:userdata_start + self.USERDATA_10_SIZE]
