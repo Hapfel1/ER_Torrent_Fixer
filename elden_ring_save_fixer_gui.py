@@ -1,6 +1,7 @@
 """
 Elden Ring Save File Fixer - Character Selection GUI
-Fixes Torrent bug and DLC location issues as well as infinite loading screens.
+Fixes Torrent bug and DLC location issues
+Shows all 10 character slots correctly
 """
 
 import tkinter as tk
@@ -371,7 +372,7 @@ class SaveFileFixer:
             confirm_msg = (
                 f"Teleport character: {name}\n\n"
                 f"No issues detected.\n"
-                f"Will teleport to Limgrave\n"
+                f"Will teleport to Limgrave (Church of Elleh)\n"
                 f"to fix potential infinite loading screens.\n\n"
                 f"A backup will be created.\n"
                 f"Is Elden Ring closed?\n\n"

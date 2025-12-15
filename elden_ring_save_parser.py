@@ -203,75 +203,65 @@ class CharacterSlot:
         self.gaitem_map_end = offset
         self.player_data_offset = offset
         
-        # Only search for horse if MapID suggests character has progressed
-        # (Not in tutorial, has valid map)
-        should_search_horse = (
-            self.map_id and 
-            self.map_id.data != bytes([0, 0, 0, 0]) and
-            self.map_id.data != bytes([0xFF, 0xFF, 0xFF, 0xFF])
-        )
+        search_start = self.data_start + 0x10000
+        search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)
         
-        if should_search_horse:
-            search_start = self.data_start + 0x10000
-            search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)
-            self.horse_offset = self._find_horse_data(search_start, search_end)
+        self.horse_offset = self._find_horse_data(search_start, search_end)
+        
+        if self.horse_offset > 0:
+            search_start = self.horse_offset + 0x100000
         else:
-            self.horse_offset = 0
+            search_start = self.data_start + 0x1E0000 
         
-        # Skip player coords search entirely - it's rarely needed for fixes
-        # Only do this search on-demand via get_player_coords() if needed
-        self.player_coords_offset = 0
+        search_end = self.data_start + self.SLOT_SIZE - 100
+        self.player_coords_offset = self._find_player_coords(search_start, search_end)
     
     def _find_horse_data(self, start: int, end: int) -> int:
         """Find RideGameData by searching for distinctive Torrent patterns"""
         
-        # Pattern 1: Inactive horse (most common, fastest check)
-        # Look for: zeros(12) + FFFFFFFF + zeros(16) + HP(>0) + State(1)
-        pattern = bytes(12) + bytes([0xFF, 0xFF, 0xFF, 0xFF]) + bytes(16)
-        
-        # Use faster memoryview for scanning
-        search_data = memoryview(self.data[start:end])
-        pattern_len = len(pattern)
-        
-        # Quick pattern search
-        for i in range(0, len(search_data) - RideGameData.SIZE, 4):  # Step by 4 for alignment
-            if search_data[i:i+pattern_len] == pattern:
-                offset = start + i
-                try:
-                    hp = struct.unpack('<I', self.data[offset+32:offset+36])[0]
-                    state = struct.unpack('<I', self.data[offset+36:offset+40])[0]
-                    
-                    if 0 < hp < 5000 and state == 1:
-                        return offset
-                except:
-                    pass
-        
-        # Pattern 2: Active horse (slower, only if pattern 1 fails)
-        # Sample every 16 bytes instead of every byte
-        for offset in range(start, end - RideGameData.SIZE, 16):
+        for offset in range(start, end - RideGameData.SIZE):
+            if self.data[offset:offset+12] != bytes(12):
+                continue
+            
+            if self.data[offset+12:offset+16] != bytes([0xFF, 0xFF, 0xFF, 0xFF]):
+                continue
+            
+            if self.data[offset+16:offset+32] != bytes(16):
+                continue
+            
             try:
-                # Quick validation before full parse
-                state_val = struct.unpack('<I', self.data[offset+36:offset+40])[0]
-                if state_val not in [1, 3, 13]:
-                    continue
+                hp = struct.unpack('<I', self.data[offset+32:offset+36])[0]
+                state = struct.unpack('<I', self.data[offset+36:offset+40])[0]
                 
-                hp_val = struct.unpack('<I', self.data[offset+32:offset+36])[0]
-                if not (0 <= hp_val < 5000):
-                    continue
-                
-                # Now do full parse
+                if hp > 0 and hp < 5000 and state == 1:
+                    return offset
+            except:
+                continue
+        
+        for offset in range(start, end - RideGameData.SIZE):
+            try:
                 horse = RideGameData.from_bytes(self.data, offset)
                 
-                # Quick coordinate check
-                if abs(horse.coordinates.x) > 10000 or abs(horse.coordinates.y) > 10000:
-                    continue
+                coords_not_zero = not (abs(horse.coordinates.x) < 0.01 and 
+                                      abs(horse.coordinates.y) < 0.01 and 
+                                      abs(horse.coordinates.z) < 0.01)
+                coords_reasonable = (abs(horse.coordinates.x) < 10000 and
+                                   abs(horse.coordinates.y) < 10000 and
+                                   abs(horse.coordinates.z) < 10000)
                 
                 map_bytes = horse.map_id.to_bytes()
-                if map_bytes == bytes([0, 0, 0, 0]) or map_bytes == bytes([0xFF, 0xFF, 0xFF, 0xFF]):
-                    continue
+                valid_map = (map_bytes != bytes([0, 0, 0, 0]) and 
+                           map_bytes != bytes([0xFF, 0xFF, 0xFF, 0xFF]))
                 
-                # Found valid active horse
-                return offset
+                valid_hp = 0 <= horse.hp < 5000
+                valid_state = horse.state in [HorseState.INACTIVE, HorseState.DEAD, HorseState.ACTIVE]
+                
+                significant_coords = (abs(horse.coordinates.x) > 1.0 or
+                                    abs(horse.coordinates.y) > 1.0 or
+                                    abs(horse.coordinates.z) > 1.0)
+                
+                if coords_not_zero and coords_reasonable and valid_map and valid_hp and valid_state and significant_coords:
+                    return offset
                     
             except:
                 continue
@@ -280,28 +270,19 @@ class CharacterSlot:
     
     def _find_player_coords(self, start: int, end: int) -> int:
         """Find CSPlayerCoords by looking for valid structure"""
-        # Sample every 16 bytes for performance (data is 16-byte aligned)
-        for offset in range(start, end - CSPlayerCoords.MIN_SIZE, 16):
+        for offset in range(start, end - CSPlayerCoords.MIN_SIZE):
             try:
-                # Quick pre-check: MapID shouldn't be all zeros or all FFs
-                map_bytes = bytes(self.data[offset+12:offset+16])
+                coords = CSPlayerCoords.from_bytes(self.data, offset)
+                
+                map_bytes = coords.map_id.data
                 if map_bytes == bytes([0, 0, 0, 0]) or map_bytes == bytes([0xFF, 0xFF, 0xFF, 0xFF]):
                     continue
                 
-                # Quick coordinate sanity check before full parse
-                x = struct.unpack('<f', self.data[offset:offset+4])[0]
-                if abs(x) > 50000:
-                    continue
-                
-                coords = CSPlayerCoords.from_bytes(self.data, offset)
-                
-                # Full coordinate validation
                 if not (abs(coords.coordinates.x) < 50000 and
                         abs(coords.coordinates.y) < 50000 and
                         abs(coords.coordinates.z) < 50000):
                     continue
                 
-                # Angle signature check (critical for player coords)
                 if not (abs(coords.angle.x) < 0.01 and
                         abs(coords.angle.z) < 0.01 and
                         abs(coords.angle.w) < 0.01 and
@@ -390,6 +371,8 @@ class EldenRingSaveFile:
         with open(filepath, 'rb') as f:
             self.data = bytearray(f.read())
         
+        # Parse ALL character slots (not just marked active)
+        # This fixes the 7/10 character detection issue
         self.characters: List[Optional[CharacterSlot]] = []
         for i in range(self.MAX_CHARACTER_COUNT):
             try:
