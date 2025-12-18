@@ -315,6 +315,12 @@ class SaveFileFixer:
         if map_id and map_id.is_dlc():
             issues_detected.append("DLC infinite loading (needs teleport)")
         
+        # Check 3: Corruption patterns
+        has_corruption, corruption_issues = slot.has_corruption()
+        if has_corruption:
+            for issue in corruption_issues:
+                issues_detected.append(f"Corruption: {issue}")
+        
         # Display issues or status
         if issues_detected:
             info += "\n" + "="*40 + "\n"
@@ -357,13 +363,25 @@ class SaveFileFixer:
         if map_id and map_id.is_dlc():
             has_any_issues = True
         
+        # Check corruption
+        has_corruption, corruption_issues = slot.has_corruption()
+        if has_corruption:
+            has_any_issues = True
+        
         # Confirmation dialog
         if has_any_issues:
+            issues_list = []
+            if horse and horse.has_bug():
+                issues_list.append("Torrent bug")
+            if map_id and map_id.is_dlc():
+                issues_list.append("DLC teleport")
+            if has_corruption:
+                issues_list.append(f"Corruption ({len(corruption_issues)} issues)")
+            
             confirm_msg = (
                 f"Fix character: {name}\n\n"
-                f"Will fix detected issues:\n"
-                f"  - Torrent bug (if present)\n"
-                f"  - DLC teleport (if present)\n\n"
+                f"Will fix detected issues:\n" +
+                "\n".join(f"  - {issue}" for issue in issues_list) + "\n\n"
                 f"A backup will be created.\n"
                 f"Is Elden Ring closed?\n\n"
                 f"Continue?"
@@ -403,7 +421,16 @@ class SaveFileFixer:
                 slot.write_horse_data(horse)
                 fixed_issues.append("Torrent bug")
             
-            # Fix 2: DLC Location or Always Teleport
+            # Fix 2: Corruption (SteamId, WorldAreaTime, WorldAreaWeather)
+            if has_corruption:
+                self.status_var.set("Fixing corruption...")
+                self.root.update()
+                was_fixed, corruption_fixes = self.save_file.fix_character_corruption(slot_idx)
+                if was_fixed:
+                    for fix in corruption_fixes:
+                        fixed_issues.append(f"Corruption: {fix}")
+            
+            # Fix 3: DLC Location or Always Teleport
             has_dlc_location = map_id and map_id.is_dlc()
             
             # Always teleport if no other fixes, or if DLC location
