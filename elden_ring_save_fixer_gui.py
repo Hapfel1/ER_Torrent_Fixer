@@ -1,7 +1,6 @@
 """
 Elden Ring Save File Fixer - Character Selection GUI
-Fixes Torrent bug and DLC location issues
-Shows all 10 character slots correctly
+Fixes Torrent bug and DLC location issues as well as corruption issues.
 """
 
 import tkinter as tk
@@ -17,7 +16,7 @@ class SaveFileFixer:
     def __init__(self, root):
         self.root = root
         self.root.title("Elden Ring Save File Fixer")
-        self.root.geometry("700x800")
+        self.root.geometry("700x520")
         self.root.resizable(False, False)
         
         style = ttk.Style()
@@ -35,6 +34,7 @@ class SaveFileFixer:
         self.default_save_path = Path(os.environ.get('APPDATA', '')) / "EldenRing"
         self.save_file = None
         self.selected_character = None
+        self.detail_popup = None
         
         self.setup_ui()
     
@@ -50,7 +50,7 @@ class SaveFileFixer:
         
         ttk.Label(
             title_frame,
-            text="Fix Torrent & DLC infinite loading screen issues",
+            text="Fix infinite loading screen issues as well as save file corruption",
             font=('Segoe UI', 10)
         ).pack()
         
@@ -68,11 +68,15 @@ class SaveFileFixer:
         ttk.Button(path_frame, text="Browse", command=self.browse_file, width=10, style='Accent.TButton').pack(side=tk.LEFT, padx=2)
         ttk.Button(path_frame, text="Auto-Find", command=self.auto_detect, width=10, style='Accent.TButton').pack(side=tk.LEFT, padx=2)
         
-        ttk.Button(file_frame, text="Load Characters", command=self.load_characters, width=20, style='Accent.TButton').pack(pady=(10, 0))
+        buttons_frame = ttk.Frame(file_frame)
+        buttons_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(buttons_frame, text="Load Characters", command=self.load_characters, width=20, style='Accent.TButton').pack(side=tk.LEFT)
+        ttk.Button(buttons_frame, text="Restore Backup", command=self.restore_backup, width=20, style='Accent.TButton').pack(side=tk.RIGHT)
         
         # Character Selection
-        char_frame = ttk.LabelFrame(self.root, text="Step 2: Select Character to Fix", padding="15")
-        char_frame.pack(fill=tk.X, padx=15, pady=12) 
+        char_frame = ttk.LabelFrame(self.root, text="Step 2: Select Character to Fix", padding="10")
+        char_frame.pack(fill=tk.X, padx=15, pady=8) 
         
         # Character list 
         list_frame = ttk.Frame(char_frame)
@@ -85,44 +89,14 @@ class SaveFileFixer:
             list_frame,
             yscrollcommand=scrollbar.set,
             font=('Consolas', 10),
-            height=8,  
+            height=10,  
             selectmode=tk.SINGLE
         )
         self.char_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)  
         scrollbar.config(command=self.char_listbox.yview)
         
-        self.char_listbox.bind('<<ListboxSelect>>', self.on_character_select)
-        
-       
-        info_label_frame = ttk.LabelFrame(self.root, text="Character Info", padding="15")
-        info_label_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10)) 
-        
-        self.info_text = tk.Text(
-            info_label_frame,
-            height=14,  
-            width=80,
-            font=('Consolas', 9),
-            bg='#f0f0f0',
-            wrap=tk.WORD,
-            state=tk.DISABLED
-        )
-        self.info_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Fix button
-        button_frame = ttk.Frame(self.root, padding="15")
-        button_frame.pack(fill=tk.X)
-        
-        self.fix_button = ttk.Button(
-            button_frame,
-            text="Fix Selected Character",
-            command=self.fix_character,
-            state=tk.DISABLED,
-            width=30,
-            style='Accent.TButton'
-        )
-        self.fix_button.pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(button_frame, text="Restore Backup", command=self.restore_backup, width=20, style='Accent.TButton').pack(side=tk.LEFT, padx=5)
+        # Only open details when clicking an actual list item
+        self.char_listbox.bind('<ButtonRelease-1>', self.on_listbox_click)
         
         # Status
         status_frame = ttk.Frame(self.root)
@@ -192,8 +166,13 @@ class SaveFileFixer:
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Save File")
         dialog.geometry("500x300")
-        dialog.transient(self.root)
         dialog.grab_set()
+        
+        # Position in center of screen
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"500x300+{x}+{y}")
         
         ttk.Label(dialog, text=f"Found {len(saves)} save files:", font=('Segoe UI', 10, 'bold'), padding=10).pack()
         
@@ -285,9 +264,51 @@ class SaveFileFixer:
         active_slots = self.save_file.get_active_slots()
         slot_idx = active_slots[selected_idx]
         
+        # If the same character is re-selected, just bring popup to front
+        if self.selected_character == slot_idx and self.detail_popup and self.detail_popup.winfo_exists():
+            try:
+                self.detail_popup.lift()
+                self.detail_popup.focus_force()
+            except Exception:
+                pass
+            return
+        
+        # Close previous popup if open because a new character was selected
+        if self.detail_popup and self.detail_popup.winfo_exists():
+            try:
+                self.detail_popup.grab_release()
+            except Exception:
+                pass
+            self.detail_popup.destroy()
+            self.detail_popup = None
+        
         self.selected_character = slot_idx
         
-        # Show character info
+        # Show character details in popup
+        self.show_character_details(slot_idx)
+
+    def on_listbox_click(self, event):
+        """Open details only when clicking inside a real list item."""
+        # Determine which index is nearest to the y click
+        idx = self.char_listbox.nearest(event.y)
+        bbox = self.char_listbox.bbox(idx)
+        # If there is no bbox (empty list) or the click is outside the item's bbox, ignore
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        if event.y < y or event.y > y + h:
+            return  # Clicked in empty area below items; do nothing
+
+        # Ensure selection is set to the clicked item
+        self.char_listbox.selection_clear(0, tk.END)
+        self.char_listbox.selection_set(idx)
+        self.char_listbox.activate(idx)
+
+        # Delegate to the selection handler (which handles dedup/closing)
+        self.on_character_select(event)
+
+    def show_character_details(self, slot_idx):
+        """Display character details in a popup window"""
         slot = self.save_file.characters[slot_idx]
         name = slot.get_character_name() or f"Character {slot_idx + 1}"
         map_id = slot.get_slot_map_id()
@@ -334,14 +355,68 @@ class SaveFileFixer:
             info += "NO ISSUES DETECTED\n"
             info += "="*40 + "\n"
             info += "\nYou can still teleport to Limgrave if\n"
-            info += "you are experiencing random infinite loading screens."
+            info += "you are experiencing an infinite loading screen."
         
-        self.info_text.config(state=tk.NORMAL)
-        self.info_text.delete(1.0, tk.END)
-        self.info_text.insert(1.0, info)
-        self.info_text.config(state=tk.DISABLED)
+        # Create popup window
+        self.detail_popup = tk.Toplevel(self.root)
+        # Avoid flicker: position while hidden, then show
+        self.detail_popup.withdraw()
+        self.detail_popup.title(f"Character Details - {name}")
+        width, height = 550, 500
+        screen_w = self.detail_popup.winfo_screenwidth()
+        screen_h = self.detail_popup.winfo_screenheight()
+        x = (screen_w // 2) - (width // 2)
+        y = (screen_h // 2) - (height // 2)
+        self.detail_popup.geometry(f"{width}x{height}+{x}+{y}")
+        # Make popup non-resizable
+        self.detail_popup.resizable(False, False)
+        self.detail_popup.deiconify()
+        self.detail_popup.lift()
+        self.detail_popup.focus_force()
+        # Keep popup on top and modal
+        self.detail_popup.attributes('-topmost', True)
+        self.detail_popup.grab_set()
         
-        self.fix_button.config(state=tk.NORMAL)
+        # Text widget to display info - keep as NORMAL to allow selection
+        text_widget = tk.Text(
+            self.detail_popup,
+            font=('Consolas', 9),
+            bg='#f0f0f0',
+            wrap=tk.WORD,
+            state=tk.NORMAL,
+            padx=10,
+            pady=10
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        text_widget.insert(1.0, info)
+        
+        # Make read-only by preventing editing but keep selection/copy working
+        def block_edit(event):
+            # Allow Ctrl+A (select all) and Ctrl+C (copy), navigation keys, and shift modifiers
+            if (event.state & 0x4 and event.keysym.lower() in ('a', 'c')) or event.keysym in (
+                'Left','Right','Up','Down','Home','End','Prior','Next','Shift_L','Shift_R'
+            ):
+                return
+            return 'break'
+        
+        text_widget.bind('<Key>', block_edit)
+        # Block paste and middle-click insert
+        text_widget.bind('<<Paste>>', lambda e: 'break')
+        text_widget.bind('<Control-v>', lambda e: 'break')
+        text_widget.bind('<Button-2>', lambda e: 'break')
+        
+        # Fix button in popup
+        button_frame = ttk.Frame(self.detail_popup, padding="10")
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            button_frame,
+            text="Fix Selected Character",
+            command=self.fix_character,
+            width=30,
+            style='Accent.TButton'
+        ).pack(side=tk.LEFT, padx=5)
 
     def fix_character(self):
         if self.selected_character is None:
@@ -390,14 +465,24 @@ class SaveFileFixer:
             confirm_msg = (
                 f"Teleport character: {name}\n\n"
                 f"No issues detected.\n"
-                f"Will teleport to Limgrave (Church of Elleh)\n"
+                f"Will teleport to Limgrave\n"
                 f"to fix potential infinite loading screens.\n\n"
                 f"A backup will be created.\n"
                 f"Is Elden Ring closed?\n\n"
                 f"Continue?"
             )
         
-        if not messagebox.askyesno("Confirm Fix", confirm_msg):
+        # Temporarily remove topmost to show confirmation dialog in front
+        if self.detail_popup:
+            self.detail_popup.attributes('-topmost', False)
+        
+        result = messagebox.askyesno("Confirm Fix", confirm_msg, parent=self.detail_popup)
+        
+        # Restore topmost
+        if self.detail_popup:
+            self.detail_popup.attributes('-topmost', True)
+        
+        if not result:
             return
         
         try:
@@ -460,6 +545,16 @@ class SaveFileFixer:
             self.status_var.set("Fix complete!")
             
             issues_text = '\n'.join([f"  - {issue}" for issue in fixed_issues])
+            
+            # Close the detail popup before showing success dialog
+            if self.detail_popup:
+                try:
+                    self.detail_popup.grab_release()
+                except Exception:
+                    pass
+                self.detail_popup.destroy()
+                self.detail_popup = None
+            
             messagebox.showinfo(
                 "Success!",
                 f"Character fixed: {name}\n\n"
