@@ -1,6 +1,6 @@
 """
 Elden Ring Save File Parser
-Proper implementation that calculates actual offsets from the template structure
+Implementation that calculates actual offsets from the template structure
 """
 
 import struct
@@ -236,11 +236,11 @@ class CharacterSlot:
         self.SLOT_SIZE = 0x280000
         self.CHECKSUM_SIZE = 0x10
         
-        # Corruption structures are NOT at fixed offsets - they vary by version/structure
-        # We'll search for them dynamically
+        
         self.WORLD_AREA_WEATHER_OFFSET = 0
         self.WORLD_AREA_TIME_OFFSET = 0
         self.STEAM_ID_OFFSET = 0
+        self._corruption_structures_found = False  
         
         self.slot_offset = self.HEADER_SIZE + (slot_index * (self.SLOT_SIZE + self.CHECKSUM_SIZE))
         self.checksum_offset = self.slot_offset
@@ -254,8 +254,10 @@ class CharacterSlot:
         self.horse_offset: int = 0
         self.player_coords_offset: int = 0
         
+        
         self._parse_structure()
-        self._find_corruption_structures()
+        
+
     
     def _parse_structure(self):
         """Parse through the structure to find exact offsets"""
@@ -274,6 +276,7 @@ class CharacterSlot:
         else:
             self.gaitem_count = 0x1400
         
+        # Parse GaitemHandleMap to find player_data_offset (needed for get_character_name)
         for i in range(self.gaitem_count):
             gaitem_handle = struct.unpack('<I', self.data[offset:offset+4])[0]
             offset += 4
@@ -293,34 +296,34 @@ class CharacterSlot:
         self.gaitem_map_end = offset
         self.player_data_offset = offset
         
-        search_start = self.data_start + 0x10000
-        search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)
-        
-        self.horse_offset = self._find_horse_data(search_start, search_end)
-        
-        # Search for CSPlayerCoords in narrow range around 2MB
-        # From CSV: PlayerCoords is at ~0x1F9xxx-0x1FAxxx relative (1.9-2.0MB)
-        search_start = self.data_start + 0x1E0000  # Start at 1.9MB
-        search_end = self.data_start + 0x210000    # End at 2.1MB (NARROW range to find correct one!)
-        self.player_coords_offset = self._find_player_coords(search_start, search_end)
+    
+    
+    def _ensure_horse_data(self):
+        """Lazy load horse data on first access"""
+        if self.horse_offset == 0:
+            search_start = self.data_start + 0x10000
+            search_end = min(self.data_start + 0x50000, self.data_start + self.SLOT_SIZE)
+            self.horse_offset = self._find_horse_data(search_start, search_end)
+    
+    def _ensure_player_coords(self):
+        """Lazy load player coords on first access"""
+        if self.player_coords_offset == 0:
+            search_start = self.data_start + 0x1E0000
+            search_end = self.data_start + 0x210000
+            self.player_coords_offset = self._find_player_coords(search_start, search_end)
+    
+    def _ensure_corruption_structures(self):
+        """
+        Lazy loader for corruption structures.
+        Only searches when first needed (has_corruption, get_weather, etc.)
+        """
+        if not self._corruption_structures_found and self.version and self.version > 0:
+            self._find_corruption_structures()
+            self._corruption_structures_found = True
     
     def _find_corruption_structures(self):
-        """
-        Find WorldAreaWeather, WorldAreaTime, and SteamId structures.
-        
-        NEW APPROACH: Search for WorldAreaWeather FIRST (more reliable signature),
-        then work backwards 0x20050 bytes to find CSPlayerCoords.
-        
-        Weather has very distinctive structure:
-        - AreaId (uint16, 0-255)
-        - WeatherType (uint16, 0-100)  
-        - Timer (uint32, < 100000)
-        - WorldAreaTime at +0xC (validated time)
-        - BaseVersion at +0x18 (0-300)
-        
-        This is MUCH more reliable than searching for coordinates which have
-        many false positives from other vector structures in the save file.
-        """
+       
+        """Search for corruption-related structures (WorldAreaWeather, WorldAreaTime, SteamID)"""
         char_name = self.get_character_name() or f"Slot {self.slot_index}"
         
         print(f"\n[DEBUG] Searching for corruption structures via Weather - {char_name}")
@@ -419,7 +422,7 @@ class CharacterSlot:
                     failed_reasons['base_version_range'] += 1
                     continue
                 
-                # CRITICAL: BaseVersionCopy should equal BaseVersion (they're synchronized)
+                # BaseVersionCopy should equal BaseVersion (they're synchronized)
                 if base_version_copy != base_version:
                     failed_reasons['base_version_mismatch'] += 1
                     continue
@@ -431,11 +434,11 @@ class CharacterSlot:
                 
                 # CRITICAL: Accept structures even if mostly zero, AS LONG AS coords are valid
                 # For corrupted saves, weather might be all zeros but coords exist
-                # We'll validate the weather structure separately in has_corruption()
+                # Validating the weather structure separately in has_corruption()
                 # Only skip if coords are clearly invalid (all zeros AND no steam ID later)
                 pass  # Accept this candidate, even if weather data looks corrupted
                 
-                # This looks like a valid weather structure!
+                
                 # Calculate where CSPlayerCoords should be
                 coords_offset = offset - 0x20050
                 
@@ -443,10 +446,7 @@ class CharacterSlot:
                 x, y, z = struct.unpack('<fff', self.data[coords_offset:coords_offset+12])
                 map_bytes = bytes(self.data[coords_offset+12:coords_offset+16])
                 
-                # CRITICAL: Reject near-zero coords - even corrupted characters have real coordinates!
-                # The CSV shows corrupted "Forsaken Panther" has coords (-17.6, 431.0, 95.3)
-                # Anything close to (0,0,X) is just uninitialized/garbage memory
-                # Real game coords have at least X or Y with significant values
+                # Reject near-zero coords
                 if abs(x) < 1.0 and abs(y) < 1.0:
                     failed_reasons['coords_bounds'] += 1
                     continue
@@ -498,9 +498,9 @@ class CharacterSlot:
         # Pick best candidate
         # Strategy: Categorize first, then sort by score within category
         # Categories (highest to lowest priority):
-        # 1. Valid = AreaId>0 AND BaseVersion>0 (real save)
-        # 2. Corrupted = AreaId=0 AND BaseVersion=0 (what we want to fix)
-        # 3. Garbage = other combinations (false positives)
+        # 1. Valid = AreaId>0 AND BaseVersion>0 
+        # 2. Corrupted = AreaId=0 AND BaseVersion=0 
+        # 3. Garbage = other combinations 
         
         
         # DEBUG: Show all Category 2 (corrupted) candidates with their quality scores
@@ -554,12 +554,10 @@ class CharacterSlot:
                 ])
                 return (1, score, non_zero_count)  # Category 1 first
             elif is_corrupted:
-                # Category 2: Corrupted structures (medium priority)
-                # For corrupted saves, use coords quality as tiebreaker
-                # Prefer coords that look more realistic
+                
                 coords_quality = 0
                 
-                # Real game coords should have significant Y values (not super high)
+                
                 if abs(y) > 10.0 and abs(y) < 2000.0:
                     coords_quality += 10
                 
@@ -567,23 +565,23 @@ class CharacterSlot:
                 if len(map_bytes) >= 4 and 0x0A <= map_bytes[3] <= 0x70:
                     coords_quality += 10
                 
-                # Prefer coords where X is not exactly zero
+                
                 if abs(x) > 1.0:
                     coords_quality += 5
                 
-                # BONUS: Prefer coords where X, Y, Z are all different (not suspiciously symmetric)
+                
                 if abs(x - y) > 10.0 or abs(y - z) > 10.0:
                     coords_quality += 5
                 
-                # BONUS: Prefer coords that aren't perfectly round numbers
+                
                 if abs(x - round(x)) > 0.1 or abs(y - round(y)) > 0.1:
                     coords_quality += 3
                 
-                # PENALTY: Suspicious patterns
-                if abs(y) > 1500.0:  # Suspiciously high Y
+                
+                if abs(y) > 1500.0:  
                     coords_quality -= 10
                 
-                if abs(x) == abs(y):  # Suspiciously symmetric (like -521.3, -521.3)
+                if abs(x) == abs(y):  
                     coords_quality -= 10
                 
                 if x == 128.0 or y == 128.0 or z == 128.0:  # Common garbage value
@@ -731,6 +729,7 @@ class CharacterSlot:
     
     def get_horse_data(self) -> Optional[RideGameData]:
         """Get parsed RideGameData"""
+        self._ensure_horse_data()  # Lazy load
         if self.horse_offset > 0:
             try:
                 horse = RideGameData.from_bytes(self.data, self.horse_offset)
@@ -741,12 +740,14 @@ class CharacterSlot:
     
     def write_horse_data(self, horse: RideGameData):
         """Write RideGameData back to save"""
+        self._ensure_horse_data()  # Lazy load
         if self.horse_offset > 0:
             horse_bytes = horse.to_bytes()
             self.data[self.horse_offset:self.horse_offset + len(horse_bytes)] = horse_bytes
     
     def get_player_coords(self) -> Optional[CSPlayerCoords]:
         """Get parsed CSPlayerCoords"""
+        self._ensure_player_coords()  # Lazy load
         if self.player_coords_offset > 0:
             try:
                 return CSPlayerCoords.from_bytes(self.data, self.player_coords_offset)
@@ -756,12 +757,14 @@ class CharacterSlot:
     
     def write_player_coords(self, coords: CSPlayerCoords):
         """Write CSPlayerCoords back to save"""
+        self._ensure_player_coords()  # Lazy load
         if self.player_coords_offset > 0:
             coords_bytes = coords.to_bytes()
             self.data[self.player_coords_offset:self.player_coords_offset + len(coords_bytes)] = coords_bytes
     
     def get_world_area_time(self) -> Optional[WorldAreaTime]:
         """Get WorldAreaTime structure"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.WORLD_AREA_TIME_OFFSET == 0:
             return None
         try:
@@ -772,6 +775,7 @@ class CharacterSlot:
     
     def write_world_area_time(self, time: WorldAreaTime):
         """Write WorldAreaTime back to save"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.WORLD_AREA_TIME_OFFSET == 0:
             return
         offset = self.data_start + self.WORLD_AREA_TIME_OFFSET
@@ -780,6 +784,7 @@ class CharacterSlot:
     
     def get_world_area_weather(self) -> Optional[WorldAreaWeather]:
         """Get WorldAreaWeather structure"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.WORLD_AREA_WEATHER_OFFSET == 0:
             return None
         try:
@@ -790,6 +795,7 @@ class CharacterSlot:
     
     def write_world_area_weather(self, weather: WorldAreaWeather):
         """Write WorldAreaWeather back to save"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.WORLD_AREA_WEATHER_OFFSET == 0:
             return
         offset = self.data_start + self.WORLD_AREA_WEATHER_OFFSET
@@ -798,6 +804,7 @@ class CharacterSlot:
     
     def get_steam_id(self) -> Optional[int]:
         """Get SteamId from character slot"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.STEAM_ID_OFFSET == 0:
             return None
         try:
@@ -808,6 +815,7 @@ class CharacterSlot:
     
     def write_steam_id(self, steam_id: int):
         """Write SteamId to character slot"""
+        self._ensure_corruption_structures()  # Lazy load
         if self.STEAM_ID_OFFSET == 0:
             return
         offset = self.data_start + self.STEAM_ID_OFFSET
@@ -815,8 +823,6 @@ class CharacterSlot:
     
     def get_seconds_played(self) -> Optional[int]:
         """Get SecondsPlayed from ProfileSummary for this character slot"""
-        # ProfileSummary is in USER_DATA_10, not in character slot
-        # We'll need to implement this at the EldenRingSaveFile level
         return None
     
     
@@ -911,6 +917,9 @@ class CharacterSlot:
         Returns:
             (has_corruption, list_of_issues)
         """
+        # Lazy load corruption structures on first check
+        self._ensure_corruption_structures()
+        
         issues = []
         
         # Skip check if corruption structures weren't found
@@ -972,18 +981,31 @@ class EldenRingSaveFile:
         with open(filepath, 'rb') as f:
             self.data = bytearray(f.read())
         
-        # Parse ALL character slots (not just marked active)
-        # This fixes the 7/10 character detection issue
         self.characters: List[Optional[CharacterSlot]] = []
         for i in range(self.MAX_CHARACTER_COUNT):
             try:
+                # OPTIMIZATION: Only skip completely empty slots (Version=0)
+                # Other validity checks happen after CharacterSlot creation
+                slot_offset = self.HEADER_SIZE + (i * (self.CHARACTER_FILE_SIZE + self.CHECKSUM_SIZE))
+                data_start = slot_offset + self.CHECKSUM_SIZE
+                
+                # Quick check: Version=0 means slot is completely empty
+                version = struct.unpack('<I', self.data[data_start:data_start+4])[0]
+                if version == 0:
+                    self.characters.append(None)
+                    continue
+                
+                # Create CharacterSlot
                 slot = CharacterSlot(self.data, i)
-                # Check if slot has valid character name
+                
                 name = slot.get_character_name()
                 if name and name.strip():
                     self.characters.append(slot)
                 else:
-                    self.characters.append(None)
+                    # No valid name - but keep it anyway to avoid filtering valid characters
+                    # The GUI will filter based on is_slot_active() check
+                    self.characters.append(slot)
+                
             except Exception as e:
                 self.characters.append(None)
     
@@ -1194,7 +1216,6 @@ class EldenRingSaveFile:
         print(f"  Current BaseVersion: {current_base_version}")
         
         if current_base_version == 0:
-            # Use a reasonable default version
             game_version = 150
             print(f"  → Applying fix: BaseVersion 0 -> {game_version}")
             print(f"  → Writing to offset: 0x{base_version_offset:X}")
