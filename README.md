@@ -42,8 +42,7 @@ python elden_ring_save_fixer_gui.py
 ## Building
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "Elden Ring Save Fixer" elden_ring_save_fixer_gui.py
+pyinstaller "Elden Ring Save Fixer.spec"
 ```
 
 ## Safety
