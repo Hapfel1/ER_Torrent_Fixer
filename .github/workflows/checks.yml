@@ -1,0 +1,33 @@
+name: Checks
+on:
+  # Make this a reusable workflow that can be called from other workflows
+  # https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows
+  workflow_call:
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version-file: ".python-version"
+      - uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6 # v6.6.1
+      - name: Install dependencies
+        run: uv sync --locked --dev
+      - name: Lint
+        run: uv run ruff check
+      - name: Format diff
+        # Run even if previous step failed
+        if: success() || failure()
+        run: uv run ruff format --diff
+
+
