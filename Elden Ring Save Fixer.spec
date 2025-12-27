@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['elden_ring_save_fixer_gui.py'],
-    pathex=[],
+    ['scripts/er_save_fixer_gui_entry.py'],
+    pathex=['src', 'scripts'],
     binaries=[],
-    datas=[('elden_ring_save_parser.py', '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
