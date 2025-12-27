@@ -29,14 +29,48 @@ Can teleport you back to Limgrave as a fallback fix for other infinite loading s
 The tool automatically creates a backup before making changes. Use "Restore Backup" if needed.
 
 ## Running from Source
-Requires Python 3.7+ with tkinter:
+Requires Python 3.13+ (see `pyproject.toml`). `tkinter` is required (usually included with standard Windows Python installs).
+
+### Using uv (recommended)
+Install `uv`, then:
+
 ```bash
-python elden_ring_save_fixer_gui.py
+uv sync
+uv run er-save-fixer
+```
+
+### CLI usage
+
+```bash
+# Launch GUI (default)
+uv run er-save-fixer
+
+# List characters
+uv run er-save-fixer list --save "C:\Path\To\ER0000.sl2"
+
+# Fix a slot (slot can be 1-10)
+uv run er-save-fixer fix --save "C:\Path\To\ER0000.sl2" --slot 1
+
+# Force teleport
+uv run er-save-fixer fix --save "C:\Path\To\ER0000.sl2" --slot 1 --teleport limgrave
+```
+
+### Without uv (legacy)
+If you have Python installed but `python` isn’t on PATH, use the Windows launcher `py`:
+
+```bash
+py elden_ring_save_fixer_gui.py
 ```
 
 ## Building
 ```bash
-pyinstaller "Elden Ring Save Fixer.spec"
+uv run pyinstaller "Elden Ring Save Fixer.spec"
+```
+
+Alternatively (without uv):
+
+```bash
+py -m PyInstaller "Elden Ring Save Fixer.spec"
 ```
 
 ## Safety
