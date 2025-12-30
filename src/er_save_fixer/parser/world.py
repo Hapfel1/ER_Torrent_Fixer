@@ -59,8 +59,14 @@ class Gestures:
     
     @classmethod
     def read(cls, f: BytesIO) -> Gestures:
-        """Read Gestures from stream (512 bytes for modern versions)"""
-        return cls.read_with_count(f, 128)
+        """Read Gestures from stream (256 bytes = 64 u32s, matching Rust library)"""
+        start_pos = f.tell()
+        result = cls.read_with_count(f, 64)
+        end_pos = f.tell()
+        bytes_read = end_pos - start_pos
+        if bytes_read != 256:
+            print(f"      WARNING: Gestures read {bytes_read} bytes, expected 256!")
+        return result
     
     @classmethod
     def read_with_count(cls, f: BytesIO, count: int) -> Gestures:
@@ -88,10 +94,12 @@ class Regions:
     
     @classmethod
     def read(cls, f: BytesIO) -> Regions:
-        """Read Regions from stream"""
+        """Read Regions from stream (variable size based on count)"""
         obj = cls()
         obj.count = struct.unpack("<I", f.read(4))[0]
         obj.region_ids = [struct.unpack("<I", f.read(4))[0] for _ in range(obj.count)]
+        return obj
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -228,6 +236,14 @@ class MenuSaveLoad:
         obj.unk0x0 = struct.unpack("<H", f.read(2))[0]
         obj.unk0x2 = struct.unpack("<H", f.read(2))[0]
         obj.size = struct.unpack("<I", f.read(4))[0]
+        
+        # CRITICAL: Validate size to prevent reading corrupted data
+        # MenuSaveLoad is always 0x1008 bytes total (header 8 + data 0x1000)
+        # If size is unreasonable, use expected size
+        if obj.size > 0x10000 or obj.size < 0:  # Max 64KB, min 0
+            print(f"      WARNING: MenuSaveLoad size {obj.size} is invalid, using 0x1000")
+            obj.size = 0x1000
+        
         obj.data = f.read(obj.size)
         return obj
     
@@ -275,7 +291,7 @@ class GaitemGameDataEntry:
 
 @dataclass
 class GaitemGameData:
-    """Gaitem game data (8 bytes + 7000 entries × 16 bytes = 0x1B458 bytes total)"""
+    """Gaitem game data (8 bytes + 7000 entries Ãƒâ€” 16 bytes = 0x1B458 bytes total)"""
     count: int = 0
     entries: List[GaitemGameDataEntry] = field(default_factory=list)
     
@@ -309,9 +325,12 @@ class TutorialDataChunk:
         """Read TutorialDataChunk from stream"""
         obj = cls()
         obj.count = struct.unpack("<I", f.read(4))[0]
-        if obj.count > 0:
-            num_ids = (total_size - 4) // 4
+        
+        # Read remaining data based on total_size (not based on count)
+        num_ids = (total_size - 4) // 4
+        if num_ids > 0:
             obj.tutorial_ids = [struct.unpack("<I", f.read(4))[0] for _ in range(num_ids)]
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -336,7 +355,16 @@ class TutorialData:
         obj.unk0x0 = struct.unpack("<H", f.read(2))[0]
         obj.unk0x2 = struct.unpack("<H", f.read(2))[0]
         obj.size = struct.unpack("<I", f.read(4))[0]
+        
+        # Validate size
+        if obj.size > 0x10000 or obj.size < 0:
+            print(f"      WARNING: TutorialData size {obj.size} is invalid, using 0x400")
+            obj.size = 0x400
+        
         obj.data = TutorialDataChunk.read(f, obj.size)
+        
+        # DON'T read padding here!
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -362,8 +390,15 @@ class FieldArea:
         """Read FieldArea from stream"""
         obj = cls()
         obj.size = struct.unpack("<i", f.read(4))[0]
-        if obj.size > 4:
-            obj.data = f.read(obj.size - 4)
+        
+        # Size field indicates how many DATA bytes to read (NOT including the size field itself)
+        if obj.size > 0 and obj.size < 0x10000:
+            obj.data = f.read(obj.size)
+        else:
+            obj.data = b''
+            if obj.size != 0:
+                print(f"      WARNING: FieldArea size {obj.size} is invalid")
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -435,8 +470,9 @@ class WorldAreaChrData:
         obj.unk0x8 = struct.unpack("<I", f.read(4))[0]
         obj.unk0xc = struct.unpack("<I", f.read(4))[0]
         
-        # Read blocks until size < 1
-        while True:
+        # Read blocks until size < 1 (with safety limit)
+        max_blocks = 100  # Safety limit to prevent infinite loops
+        for _ in range(max_blocks):
             block = WorldBlockChrData.read(f)
             obj.blocks.append(block)
             if block.size < 1:
@@ -462,10 +498,28 @@ class WorldArea:
     
     @classmethod
     def read(cls, f: BytesIO) -> WorldArea:
-        """Read WorldArea from stream"""
+        """Read WorldArea from stream (variable size based on size field)"""
         obj = cls()
         obj.size = struct.unpack("<i", f.read(4))[0]
-        obj.data = WorldAreaChrData.read(f)
+        
+        # Size field indicates how many DATA bytes to read
+        if obj.size > 0 and obj.size < 0x10000:
+            raw_data = f.read(obj.size)
+            
+            # Try to parse WorldAreaChrData from the data
+            if obj.size >= 8:
+                inner_stream = BytesIO(raw_data)
+                try:
+                    obj.data = WorldAreaChrData.read(inner_stream)
+                except:
+                    obj.data = WorldAreaChrData()
+            else:
+                obj.data = WorldAreaChrData()
+        else:
+            obj.data = WorldAreaChrData()
+            if obj.size != 0:
+                print(f"      WARNING: WorldArea size {obj.size} is invalid")
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -522,9 +576,10 @@ class WorldGeomData:
         obj = cls()
         obj.magic = f.read(4)
         obj.unk_0x4 = struct.unpack("<I", f.read(4))[0]
-        
-        # Read chunks until size < 1
-        while True:
+        print(f"      DEBUG WorldGeomMan: size={obj.size:X}, expected_data_size={expected_data_size:X}")
+        # Read chunks until size < 1 (with safety limit)
+        max_chunks = 50  # Safety limit to prevent infinite loops
+        for _ in range(max_chunks):
             chunk = WorldGeomDataChunk.read(f)
             obj.chunks.append(chunk)
             if chunk.size < 1:
@@ -548,10 +603,28 @@ class WorldGeomMan:
     
     @classmethod
     def read(cls, f: BytesIO) -> WorldGeomMan:
-        """Read WorldGeomMan from stream"""
+        """Read WorldGeomMan from stream (variable size based on size field)"""
         obj = cls()
         obj.size = struct.unpack("<i", f.read(4))[0]
-        obj.data = WorldGeomData.read(f)
+        
+        # Size field indicates how many DATA bytes to read
+        if obj.size > 0 and obj.size < 0x100000:
+            raw_data = f.read(obj.size)
+            
+            # Try to parse the data
+            if obj.size >= 8:
+                inner_stream = BytesIO(raw_data)
+                try:
+                    obj.data = WorldGeomData.read(inner_stream)
+                except:
+                    obj.data = WorldGeomData()
+            else:
+                obj.data = WorldGeomData()
+        else:
+            obj.data = WorldGeomData()
+            if obj.size != 0:
+                print(f"      WARNING: WorldGeomMan size {obj.size} is invalid")
+        
         return obj
     
     def write(self, f: BytesIO):
@@ -595,9 +668,14 @@ class StageMan:
         obj = cls()
         obj.count = struct.unpack("<i", f.read(4))[0]
         
-        if obj.count > 0:
+        # CRITICAL: Validate count to prevent hanging on corrupted data
+        if obj.count > 0 and obj.count < 1000:  # Reasonable count limit
             entry_size = (total_size - 4) // obj.count
-            obj.entries = [StageManEntry.read(f, entry_size) for _ in range(obj.count)]
+            # Also validate entry_size is reasonable
+            if entry_size > 0 and entry_size < 0x10000:
+                obj.entries = [StageManEntry.read(f, entry_size) for _ in range(obj.count)]
+        elif obj.count >= 1000:
+            print(f"      WARNING: StageMan count {obj.count} is too high, skipping entries")
         
         return obj
     
@@ -616,10 +694,18 @@ class RendMan:
     
     @classmethod
     def read(cls, f: BytesIO) -> RendMan:
-        """Read RendMan from stream"""
+        """Read RendMan from stream (variable size based on size field)"""
         obj = cls()
         obj.size = struct.unpack("<i", f.read(4))[0]
-        obj.data = StageMan.read(f, obj.size)
+        
+        # Size field indicates how many DATA bytes to read
+        if obj.size > 0 and obj.size < 0x100000:
+            obj.data = f.read(obj.size)
+        else:
+            obj.data = b''
+            if obj.size != 0:
+                print(f"      WARNING: RendMan size {obj.size} is invalid")
+        
         return obj
     
     def write(self, f: BytesIO):

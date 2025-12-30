@@ -1,8 +1,21 @@
 """ER Save Fixer package."""
-from .save import Save, load_save
-from .user_data_x import UserDataX
+from .parser import (
+    Save,
+    load_save,
+    UserDataX,
+    MapId,
+    HorseState,
+    RideGameData,
+)
 
-__all__ = ["Save", "load_save", "UserDataX"]
+__all__ = [
+    'Save',
+    'load_save',
+    'UserDataX',
+    'MapId',
+    'HorseState',
+    'RideGameData',
+]
 
 # Keep in sync with `pyproject.toml` and `version_info.txt` (PyInstaller).
 __version__ = "3.2.0"

@@ -49,16 +49,15 @@ class Util:
             max_chars: Maximum number of characters (not bytes)
             
         Returns:
-            Decoded string
+            Decoded string with trailing nulls stripped
         """
         bytes_to_read = max_chars * 2
         data = f.read(bytes_to_read)
         try:
-            # Find null terminator
-            null_pos = data.find(b'\x00\x00')
-            if null_pos != -1 and null_pos % 2 == 0:
-                data = data[:null_pos]
-            return data.decode('utf-16le', errors='ignore')
+            # Decode the full data
+            decoded = data.decode('utf-16le', errors='ignore')
+            # Strip trailing null characters
+            return decoded.rstrip('\x00')
         except:
             return ""
     

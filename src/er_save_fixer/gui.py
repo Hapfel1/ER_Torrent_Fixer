@@ -12,7 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from er_save_fixer.parser import EldenRingSaveFile, MapID
+from .parser import Save, load_save, MapId, HorseState
 
 
 class SaveFileFixer:

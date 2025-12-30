@@ -9,10 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from io import BytesIO
 import struct
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 from .user_data_x import UserDataX
+from .user_data_10 import UserData10
 
 
 @dataclass
@@ -24,8 +25,8 @@ class Save:
     - Magic (4 bytes)
     - Header (0x2FC for PC, 0x6C for PS)
     - 10 × Character slots (UserDataX)
-    - USER_DATA_10
-    - USER_DATA_11
+    - USER_DATA_10 (Common section with SteamID and ProfileSummary)
+    - USER_DATA_11 (Regulation data)
     
     Each character slot on PC has:
     - MD5 checksum (16 bytes)
@@ -42,7 +43,10 @@ class Save:
     # Character slots (10 total)
     character_slots: List[UserDataX] = field(default_factory=list)
     
-    # Additional data sections
+    # Common section (parsed)
+    user_data_10_parsed: Optional[UserData10] = None
+    
+    # Additional data sections (raw)
     user_data_10: bytes = b''
     user_data_11: bytes = b''
     
@@ -157,15 +161,29 @@ class Save:
                 correct_position = slot_start + 0x280010
                 f.seek(correct_position)
         
-        # Read USER_DATA_10
+        # Read and parse USER_DATA_10
         print("\n" + "=" * 60)
-        print("Reading USER_DATA_10...")
-        if not obj.is_ps:
-            f.read(16)  # Skip checksum
+        print("Reading USER_DATA_10 (Common section)...")
         
-        if obj.is_ps:
-            obj.user_data_10 = f.read(0x60000)
-        else:
+        user_data_10_start = f.tell()
+        
+        try:
+            # Parse USER_DATA_10
+            obj.user_data_10_parsed = UserData10.read(f, obj.is_ps)
+            print(f"  Steam ID: {obj.user_data_10_parsed.steam_id}")
+            print(f"  Version: {obj.user_data_10_parsed.version}")
+            
+            # Also keep raw bytes
+            user_data_10_end = f.tell()
+            f.seek(user_data_10_start)
+            obj.user_data_10 = f.read(user_data_10_end - user_data_10_start)
+            f.seek(user_data_10_end)
+        except Exception as e:
+            print(f"  WARNING: Failed to parse USER_DATA_10: {e}")
+            # Fall back to reading raw bytes
+            f.seek(user_data_10_start)
+            if not obj.is_ps:
+                f.read(16)  # Skip checksum
             obj.user_data_10 = f.read(0x60000)
         
         # Read USER_DATA_11
@@ -230,6 +248,9 @@ class Save:
         print(f"Platform: {'PlayStation' if self.is_ps else 'PC'}")
         print(f"Magic: {self.magic.hex()}")
         
+        if self.user_data_10_parsed:
+            print(f"Steam ID: {self.user_data_10_parsed.steam_id}")
+        
         active_slots = self.get_active_slots()
         print(f"\nActive slots: {len(active_slots)}/10")
         
@@ -245,6 +266,13 @@ class Save:
                 print(f"  HP: {char.player_game_data.hp}/{char.player_game_data.max_hp}")
                 print(f"  Runes: {char.player_game_data.runes:,}")
                 print(f"  Deaths: {char.total_deaths_count}")
+                
+                # Show profile summary time played if available
+                if self.user_data_10_parsed and slot_index < len(self.user_data_10_parsed.profile_summary.profiles):
+                    profile = self.user_data_10_parsed.profile_summary.profiles[slot_index]
+                    hours = profile.seconds_played // 3600
+                    minutes = (profile.seconds_played % 3600) // 60
+                    print(f"  Time Played: {hours}h {minutes}m")
                 
                 # Show issues
                 issues = []

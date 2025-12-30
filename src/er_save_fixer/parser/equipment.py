@@ -406,7 +406,7 @@ class Spell:
 
 @dataclass
 class EquippedSpells:
-    """Equipped spells (0x74 = 116 bytes: 14 spells × 8 bytes + 4 bytes active index)"""
+    """Equipped spells (0x74 = 116 bytes: 14 spells Ã— 8 bytes + 4 bytes active index)"""
     spell_slots: List[Spell] = field(default_factory=list)
     active_index: int = 0
     
@@ -486,7 +486,7 @@ class EquippedItems:
 
 @dataclass
 class EquippedGestures:
-    """Equipped gestures (0x18 = 24 bytes: 6 gestures × 4 bytes)"""
+    """Equipped gestures (0x18 = 24 bytes: 6 gestures Ã— 4 bytes)"""
     gesture_ids: List[int] = field(default_factory=list)
     
     @classmethod
@@ -525,35 +525,28 @@ class Projectile:
 @dataclass
 class AcquiredProjectiles:
     """
-    Acquired projectiles (variable size, but reads as fixed 0x7CC bytes)
-    Contains count + projectile list + padding
+    Acquired projectiles (VARIABLE size based on count)
+    Structure: 4 bytes count + (count × 8 bytes projectiles)
     """
     count: int = 0
     projectiles: List[Projectile] = field(default_factory=list)
     
     @classmethod
     def read(cls, f: BytesIO) -> AcquiredProjectiles:
-        """Read AcquiredProjectiles from stream (reads until 0x7CC bytes consumed)"""
-        start_pos = f.tell()
+        """Read AcquiredProjectiles from stream (variable size based on count)"""
         obj = cls()
         obj.count = struct.unpack("<I", f.read(4))[0]
-        obj.projectiles = [Projectile.read(f) for _ in range(obj.count)]
         
-        # Skip remaining bytes to reach total size of 0x7CC
-        bytes_read = f.tell() - start_pos
-        remaining = 0x7CC - bytes_read
-        if remaining > 0:
-            f.read(remaining)
+        # Read exactly count projectiles (each is 8 bytes)
+        obj.projectiles = [Projectile.read(f) for _ in range(obj.count)]
         
         return obj
     
     def write(self, f: BytesIO):
-        """Write AcquiredProjectiles to stream (total 0x7CC bytes)"""
-        start_pos = f.tell()
+        """Write AcquiredProjectiles to stream"""
         f.write(struct.pack("<I", self.count))
         for proj in self.projectiles:
             proj.write(f)
-        
         # Pad to 0x7CC bytes
         bytes_written = f.tell() - start_pos
         remaining = 0x7CC - bytes_written
@@ -563,7 +556,7 @@ class AcquiredProjectiles:
 
 @dataclass
 class EquippedArmamentsAndItems:
-    """Complete equipped state (0x9C = 156 bytes: 39 items × 4 bytes)"""
+    """Complete equipped state (0x9C = 156 bytes: 39 items Ã— 4 bytes)"""
     left_hand_armament1: int = 0
     right_hand_armament1: int = 0
     left_hand_armament2: int = 0
