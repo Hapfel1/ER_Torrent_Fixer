@@ -59,13 +59,13 @@ class UserDataX:
     This class sequentially parses EVERY field in exact order from the save file.
     Size: ~2.6MB per slot (varies based on version and data)
     """
+
     # Metadata (not from file, tracking info)
     data_start: int = 0
     horse_offset: int = 0
     weather_offset: int = 0
     time_offset: int = 0
     steamid_offset: int = 0
-    horse_offset: int = 0
     # Header (4 + 4 + 8 + 16 = 32 bytes)
     version: int = 0
     map_id: MapId = field(default_factory=MapId)
@@ -431,84 +431,87 @@ class UserDataX:
 
     def has_torrent_bug(self) -> bool:
         """Check if Torrent has the infinite loading bug (HP=0 with State=Active)"""
-        if not hasattr(self, 'horse') or self.horse is None:
+        if not hasattr(self, "horse") or self.horse is None:
             return False
         return self.horse.has_bug()
 
     def fix_torrent_bug(self):
         """Fix Torrent infinite loading bug by setting State to Dead"""
-        if hasattr(self, 'horse') and self.horse is not None:
+        if hasattr(self, "horse") and self.horse is not None:
             self.horse.fix_bug()
 
     def has_weather_corruption(self) -> bool:
         """
         Check if weather data appears corrupted.
-        
+
         Corruption signs:
         - AreaId is 0 AND character is in a real game location
         - Timer value is unreasonably large (> 100000)
         """
-        if not hasattr(self, 'world_area_weather') or self.world_area_weather is None:
+        if not hasattr(self, "world_area_weather") or self.world_area_weather is None:
             return False
-        
+
         weather = self.world_area_weather
-        
+
         # Check for unreasonably large timer (clear corruption)
         if weather.timer > 100000:
             return True
-        
+
         # Check if AreaId is 0 but character has a real map location
         # This indicates desync between map position and weather data
         if weather.area_id == 0:
-            if hasattr(self, 'map_id') and self.map_id is not None:
+            if hasattr(self, "map_id") and self.map_id is not None:
                 # Check if map_id shows character is in a real location (not all zeros)
-                if self.map_id.data != b'\x00\x00\x00\x00':
+                if self.map_id.data != b"\x00\x00\x00\x00":
                     # Character is in game world but weather shows no area = corruption
                     return True
-        
+
         return False
 
     def has_time_corruption(self, seconds_played: int | None = None) -> bool:
         """
         Check if time is corrupted by comparing with expected value.
-        
+
         Args:
             seconds_played: Expected playtime in seconds from ProfileSummary
-        
+
         Returns:
             True if corrupted
         """
         if not hasattr(self, "world_area_time") or self.world_area_time is None:
             return False
-        
+
         time = self.world_area_time
-        
+
         # Check for clearly invalid time values
         if time.minute > 59 or time.second > 59:
             return True
-        
+
         # If seconds_played provided, compare with expected time
         if seconds_played is not None:
             expected_hours = seconds_played // 3600
             expected_minutes = (seconds_played % 3600) // 60
             expected_seconds = seconds_played % 60
-            
+
             # Corrupted if time does not match expected value
-            if (time.hour != expected_hours or
-                time.minute != expected_minutes or
-                time.second != expected_seconds):
+            if (
+                time.hour != expected_hours
+                or time.minute != expected_minutes
+                or time.second != expected_seconds
+            ):
                 return True
             return False
-        
+
         # Without seconds_played, only check for all zeros
         if time.hour == 0 and time.minute == 0 and time.second == 0:
             return True
-        
+
         return False
+
     def has_steamid_corruption(self) -> bool:
         """
         Check if SteamId is corrupted (set to 0).
-        
+
         Returns:
             True if SteamId is 0
         """
@@ -519,47 +522,50 @@ class UserDataX:
     def has_corruption(self) -> tuple[bool, list[str]]:
         """
         Check if this character slot has any corruption.
-        
+
         Returns tuple with corruption details including values:
             (has_corruption, list_of_issue_strings)
-            
+
         Issue strings format: "issue_type:value"
         """
         issues = []
-        
+
         # Check Torrent bug
         if self.has_torrent_bug():
             horse = self.horse
             if horse:
                 issues.append(f"torrent_bug:HP = {horse.hp},State = {horse.state.name}")
-        
+
         # Check weather corruption
         if self.has_weather_corruption():
             weather = self.world_area_weather
             map_id = self.map_id
             if weather and map_id:
-                issues.append(f"weather_corruption:AreaId = {weather.area_id},Should be {map_id.data[3]}")
-    
+                issues.append(
+                    f"weather_corruption:AreaId = {weather.area_id},Should be {map_id.data[3]}"
+                )
+
         # Check time corruption (without ProfileSummary context)
         # Note: Cannot verify time matches seconds_played from here
         # Proper check happens in Save.fix_character_corruption which has slot index
         if self.has_time_corruption():
             time = self.world_area_time
             if time:
-                issues.append(f"time_corruption:Time = {time.hour:02d}:{time.minute:02d}:{time.second:02d}")
-        
+                issues.append(
+                    f"time_corruption:Time = {time.hour:02d}:{time.minute:02d}:{time.second:02d}"
+                )
+
         # Check SteamId corruption
         if self.has_steamid_corruption():
             issues.append(f"steamid_corruption:SteamId = {self.steam_id}")
-        
+
         has_corruption = len(issues) > 0
         return (has_corruption, issues)
-
 
     def get_horse_data(self) -> RideGameData | None:
         """
         Get Torrent/horse data for this character slot.
-        
+
         Returns:
             RideGameData if available, None otherwise
         """
@@ -570,7 +576,7 @@ class UserDataX:
     def write_horse_data(self, horse: RideGameData):
         """
         Update Torrent/horse data for this character slot.
-        
+
         Args:
             horse: New RideGameData to save
         """
@@ -579,7 +585,7 @@ class UserDataX:
     def get_slot_map_id(self) -> MapId | None:
         """
         Get the map ID for this character slot.
-        
+
         Returns:
             MapId if available, None otherwise
         """

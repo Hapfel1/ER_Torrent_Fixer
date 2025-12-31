@@ -13,6 +13,7 @@ from io import BytesIO
 from .user_data_10 import UserData10
 from .user_data_x import UserDataX
 
+
 @dataclass
 class Save:
     """
@@ -178,46 +179,46 @@ class Save:
     def recalculate_checksums(self):
         """
         Recalculate MD5 checksums for all active slots
-    
+
         This is called after making modifications to ensure
         the save file integrity is maintained
         """
         if not hasattr(self, "_raw_data"):
             raise RuntimeError("Cannot recalculate checksums: raw data not available")
-    
+
         import hashlib
-    
+
         # Recalculate for each active slot
         for slot_idx in range(10):
             slot = self.character_slots[slot_idx]
             if slot.is_empty():
                 continue
-    
+
             # Calculate slot boundaries
             HEADER_SIZE = 0x300 if self.magic == b"BND4" else 0x6C
             SLOT_SIZE = 0x280000
             CHECKSUM_SIZE = 0x10
-    
+
             slot_offset = HEADER_SIZE + (slot_idx * (SLOT_SIZE + CHECKSUM_SIZE))
             checksum_offset = slot_offset
             data_offset = slot_offset + CHECKSUM_SIZE
-    
+
             # Calculate MD5 of character data
             char_data = self._raw_data[data_offset : data_offset + SLOT_SIZE]
             md5_hash = hashlib.md5(char_data).digest()
-    
+
             # Write checksum
             self._raw_data[checksum_offset : checksum_offset + CHECKSUM_SIZE] = md5_hash
-    
+
         # Recalculate USER_DATA_10 checksum
         HEADER_SIZE = 0x300 if self.magic == b"BND4" else 0x6C
         SLOT_SIZE = 0x280000
         CHECKSUM_SIZE = 0x10
-    
+
         userdata10_offset = HEADER_SIZE + (10 * (SLOT_SIZE + CHECKSUM_SIZE))
         userdata10_checksum_offset = userdata10_offset
         userdata10_data_offset = userdata10_offset + CHECKSUM_SIZE
-    
+
         userdata10_data = self._raw_data[
             userdata10_data_offset : userdata10_data_offset + 0x60000
         ]
@@ -225,23 +226,19 @@ class Save:
         self._raw_data[
             userdata10_checksum_offset : userdata10_checksum_offset + CHECKSUM_SIZE
         ] = md5_hash
-    
-    
 
     def to_file(self, filepath: str):
         """
         Write save file to disk.
-    
+
         Args:
             filepath: Path where save file will be written
         """
         if not hasattr(self, "_raw_data"):
             raise RuntimeError("Cannot write save file: raw data not available")
-    
+
         with open(filepath, "wb") as f:
             f.write(self._raw_data)
-    
-    
 
     def get_active_slots(self) -> list[int]:
         """
@@ -324,115 +321,133 @@ class Save:
     @property
     def data(self):
         """Compatibility alias for _raw_data"""
-        if hasattr(self, '_raw_data'):
+        if hasattr(self, "_raw_data"):
             return self._raw_data
         return bytearray()
-    
+
     def fix_character_corruption(self, slot_index: int) -> tuple[bool, list[str]]:
         """
         Fix corruption issues in a character slot.
-        
+
         Fixes:
         1. Torrent bug: HP=0, State=ACTIVE → State=DEAD
         2. SteamId: 0 → Copy from USER_DATA_10
         3. Time: 00:00:00 → Calculate from seconds_played
         4. Weather: AreaId=0 → Sync with MapId[3]
-        
+
         Returns:
             (was_fixed, list_of_fixes)
         """
         if slot_index < 0 or slot_index >= 10:
             raise IndexError(f"Slot index must be 0-9, got {slot_index}")
-        
+
         slot = self.character_slots[slot_index]
         if slot.is_empty():
             return (False, [])
-        
+
         fixes = []
         from io import BytesIO
-        
+
         # Fix 1: Torrent bug
         if slot.has_torrent_bug():
             horse = slot.horse
             if horse and horse.has_bug():
                 horse.fix_bug()
-                
-                if hasattr(slot, 'horse_offset') and slot.horse_offset > 0:
+
+                if hasattr(slot, "horse_offset") and slot.horse_offset > 0:
                     horse_bytes = BytesIO()
                     horse.write(horse_bytes)
                     horse_data = horse_bytes.getvalue()
-                    self._raw_data[slot.horse_offset:slot.horse_offset + len(horse_data)] = horse_data
+                    self._raw_data[
+                        slot.horse_offset : slot.horse_offset + len(horse_data)
+                    ] = horse_data
                     fixes.append(f"torrent_bug:State changed to {horse.state.name}")
-        
+
         # Fix 2: SteamId corruption
         if slot.has_steamid_corruption():
             # Get SteamId from USER_DATA_10
-            if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, 'steam_id'):
+            if self.user_data_10_parsed and hasattr(
+                self.user_data_10_parsed, "steam_id"
+            ):
                 correct_steam_id = self.user_data_10_parsed.steam_id
-                
+
                 # Update in memory
                 slot.steam_id = correct_steam_id
-                
+
                 # Write to file
-                if hasattr(slot, 'steamid_offset') and slot.steamid_offset > 0:
+                if hasattr(slot, "steamid_offset") and slot.steamid_offset > 0:
                     import struct
+
                     steamid_bytes = struct.pack("<Q", correct_steam_id)
-                    self._raw_data[slot.steamid_offset:slot.steamid_offset + 8] = steamid_bytes
+                    self._raw_data[slot.steamid_offset : slot.steamid_offset + 8] = (
+                        steamid_bytes
+                    )
                     fixes.append(f"steamid_sync:SteamId set to {correct_steam_id}")
-        
+
         # Fix 3: Time corruption
         # Get seconds_played from ProfileSummary
         seconds_played = None
-        if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, "profile_summary"):
+        if self.user_data_10_parsed and hasattr(
+            self.user_data_10_parsed, "profile_summary"
+        ):
             profile_summary = self.user_data_10_parsed.profile_summary
             if slot_index < len(profile_summary.profiles):
                 seconds_played = profile_summary.profiles[slot_index].seconds_played
-        
+
         if slot.has_time_corruption(seconds_played):
             time = slot.world_area_time
             if time:
                 # Get seconds_played from ProfileSummary
-                if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, 'profile_summary'):
+                if self.user_data_10_parsed and hasattr(
+                    self.user_data_10_parsed, "profile_summary"
+                ):
                     profile_summary = self.user_data_10_parsed.profile_summary
                     if slot_index < len(profile_summary.profiles):
                         profile = profile_summary.profiles[slot_index]
                         seconds_played = profile.seconds_played
-                        
+
                         # Calculate hours:minutes:seconds
                         hours = seconds_played // 3600
                         minutes = (seconds_played % 3600) // 60
                         seconds = seconds_played % 60
-                        
+
                         # Update in memory
                         time.hour = hours
                         time.minute = minutes
                         time.second = seconds
-                        
+
                         # Write to file
-                        if hasattr(slot, 'time_offset') and slot.time_offset > 0:
+                        if hasattr(slot, "time_offset") and slot.time_offset > 0:
                             time_bytes = BytesIO()
                             time.write(time_bytes)
                             time_data = time_bytes.getvalue()
-                            self._raw_data[slot.time_offset:slot.time_offset + len(time_data)] = time_data
-                            fixes.append(f"time_sync:Time set to {hours:02d}:{minutes:02d}:{seconds:02d}")
-        
+                            self._raw_data[
+                                slot.time_offset : slot.time_offset + len(time_data)
+                            ] = time_data
+                            fixes.append(
+                                f"time_sync:Time set to {hours:02d}:{minutes:02d}:{seconds:02d}"
+                            )
+
         # Fix 4: Weather corruption
         if slot.has_weather_corruption():
             weather = slot.world_area_weather
-            if weather and hasattr(slot, 'map_id') and slot.map_id:
+            if weather and hasattr(slot, "map_id") and slot.map_id:
                 # Update in memory - AreaId = MapId[3]
                 weather.area_id = slot.map_id.data[3]
-                
+
                 # Write to file
-                if hasattr(slot, 'weather_offset') and slot.weather_offset > 0:
+                if hasattr(slot, "weather_offset") and slot.weather_offset > 0:
                     weather_bytes = BytesIO()
                     weather.write(weather_bytes)
                     weather_data = weather_bytes.getvalue()
-                    self._raw_data[slot.weather_offset:slot.weather_offset + len(weather_data)] = weather_data
+                    self._raw_data[
+                        slot.weather_offset : slot.weather_offset + len(weather_data)
+                    ] = weather_data
                     fixes.append(f"weather_sync:AreaId set to {weather.area_id}")
-        
+
         was_fixed = len(fixes) > 0
         return (was_fixed, fixes)
+
 
 def load_save(filepath: str) -> Save:
     """
@@ -445,6 +460,7 @@ def load_save(filepath: str) -> Save:
         Parsed Save object
     """
     return Save.from_file(filepath)
+
 
 # Main entry point for testing
 if __name__ == "__main__":
