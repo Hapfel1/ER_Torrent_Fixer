@@ -60,6 +60,12 @@ class UserDataX:
     Size: ~2.6MB per slot (varies based on version and data)
     """
 
+    # Metadata (not from file, tracking info)
+    data_start: int = 0
+    horse_offset: int = 0
+    weather_offset: int = 0
+    time_offset: int = 0
+    steamid_offset: int = 0
     # Header (4 + 4 + 8 + 16 = 32 bytes)
     version: int = 0
     map_id: MapId = field(default_factory=MapId)
@@ -265,6 +271,7 @@ class UserDataX:
             UserDataX instance with all fields populated
         """
         obj = cls()
+        obj.data_start = slot_start_offset
         data_start = f.tell()  # Track where we started reading
 
         # Read version (4 bytes)
@@ -322,7 +329,8 @@ class UserDataX:
         # Parse remaining structures
         obj.gestures = Gestures.read(f)
         obj.unlocked_regions = Regions.read(f)
-
+        obj.horse_offset = f.tell()
+        obj.horse_offset = f.tell()
         obj.horse = RideGameData.read(f)
         obj.control_byte_maybe = struct.unpack("<B", f.read(1))[0]
         obj.blood_stain = BloodStain.read(f)
@@ -384,9 +392,12 @@ class UserDataX:
         f.read(24)
         f.seek(current_pos)
 
+        obj.weather_offset = f.tell()
         obj.world_area_weather = WorldAreaWeather.read(f)
+        obj.time_offset = f.tell()
         obj.world_area_time = WorldAreaTime.read(f)
         obj.base_version = BaseVersion.read(f)
+        obj.steamid_offset = f.tell()
         obj.steam_id = struct.unpack("<Q", f.read(8))[0]
         obj.ps5_activity = PS5Activity.read(f)
         obj.dlc = DLC.read(f)
@@ -419,62 +430,124 @@ class UserDataX:
         return self.player_game_data.level
 
     def has_torrent_bug(self) -> bool:
-        """Check if Torrent has the infinite loading bug"""
+        """Check if Torrent has the infinite loading bug (HP=0 with State=Active)"""
+        if not hasattr(self, "horse") or self.horse is None:
+            return False
         return self.horse.has_bug()
 
     def fix_torrent_bug(self):
-        """Fix Torrent infinite loading bug"""
-        self.horse.fix_bug()
+        """Fix Torrent infinite loading bug by setting State to Dead"""
+        if hasattr(self, "horse") and self.horse is not None:
+            self.horse.fix_bug()
 
     def has_weather_corruption(self) -> bool:
         """
-        Check if weather data is corrupted.
-        Note: Weather AreaId=0 is NORMAL for Seamless Co-op saves, not corruption.
-        Only flag as corruption if there are other signs of issues.
+        Check if weather data appears corrupted.
+
+        Corruption signs:
+        - AreaId is 0 AND character is in a real game location
+        - Timer value is unreasonably large (> 100000)
         """
-        # For now, don't flag weather as corrupted since 0 is valid for co-op
+        if not hasattr(self, "world_area_weather") or self.world_area_weather is None:
+            return False
+
+        weather = self.world_area_weather
+
+        # Check for unreasonably large timer (clear corruption)
+        if weather.timer > 100000:
+            return True
+
+        # Check if AreaId is 0 but character has a real map location
+        # This indicates desync between map position and weather data
+        if weather.area_id == 0:
+            if hasattr(self, "map_id") and self.map_id is not None:
+                # Check if map_id shows character is in a real location (not all zeros)
+                if self.map_id.data != b"\x00\x00\x00\x00":
+                    # Character is in game world but weather shows no area = corruption
+                    return True
+
         return False
 
     def has_time_corruption(self) -> bool:
         """
-        Check if time data is corrupted.
-        Note: Time 00:00:00 is NORMAL for Seamless Co-op saves, not corruption.
-        Only flag as corruption if combined with other issues.
+        Check if time data appears corrupted.
+
+        Corruption occurs when the time doesn't match the expected value
+        calculated from seconds_played in ProfileSummary.
+
+        We need access to ProfileSummary to check this properly,
+        so this method should be called with that context.
+
+        For now, check for obviously corrupted values:
+        - Hour > 23, minute > 59, or second > 59 (impossible values)
+        - Time is 00:00:00 (indicates corruption if player has play time)
         """
-        # For now, don't flag time as corrupted since 00:00:00 is valid for co-op
+        if not hasattr(self, "world_area_time") or self.world_area_time is None:
+            return False
+
+        time = self.world_area_time
+
+        # Check for impossible time values
+        if time.hour > 23 or time.minute > 59 or time.second > 59:
+            return True
+
+        # Check if time is all zeros
+        if time.hour == 0 and time.minute == 0 and time.second == 0:
+            return True
+
         return False
+
+    def has_steamid_corruption(self) -> bool:
+        """
+        Check if SteamId is corrupted (set to 0).
+
+        Returns:
+            True if SteamId is 0
+        """
+        if not hasattr(self, "steam_id"):
+            return False
+        return self.steam_id == 0
 
     def has_corruption(self) -> tuple[bool, list[str]]:
         """
-        Check if this character slot has any corruption
+        Check if this character slot has any corruption.
 
-        Returns:
-            (has_corruption, list_of_issues)
+        Returns tuple with corruption details including values:
+            (has_corruption, list_of_issue_strings)
+
+        Issue strings format: "issue_type:value"
         """
         issues = []
 
+        # Check Torrent bug
         if self.has_torrent_bug():
-            issues.append("torrent_bug")
+            horse = self.horse
+            if horse:
+                issues.append(f"torrent_bug:HP = {horse.hp},State = {horse.state.name}")
 
+        # Check weather corruption
         if self.has_weather_corruption():
-            issues.append("weather_corruption")
+            weather = self.world_area_weather
+            map_id = self.map_id
+            if weather and map_id:
+                issues.append(
+                    f"weather_corruption:AreaId = {weather.area_id},Should be {map_id.data[3]}"
+                )
 
+        # Check time corruption
         if self.has_time_corruption():
-            issues.append("time_corruption")
+            time = self.world_area_time
+            if time:
+                issues.append(
+                    f"time_corruption:Time = {time.hour:02d}:{time.minute:02d}:{time.second:02d}"
+                )
+
+        # Check SteamId corruption
+        if self.has_steamid_corruption():
+            issues.append(f"steamid_corruption:SteamId = {self.steam_id}")
 
         has_corruption = len(issues) > 0
         return (has_corruption, issues)
-
-    def _find_torrent_offset(self) -> int:
-        """
-        Find the offset of Torrent/RideGameData in the save file
-
-        Returns:
-            Absolute file offset, or 0 if not found
-        """
-        # This needs to be implemented based on how the horse data is stored
-        # For now, return 0 (not implemented)
-        return 0
 
     def get_horse_data(self) -> RideGameData | None:
         """

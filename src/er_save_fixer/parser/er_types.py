@@ -172,6 +172,50 @@ class MapId:
     def __str__(self):
         return self.to_decimal()
 
+    def is_dlc(self) -> bool:
+        """
+        Check if this map ID is in the Shadow of the Erdtree DLC area.
+
+        DLC includes:
+        - m20-m29: DLC legacy dungeons (Belurat, Enir-Ilim, Shadow Keep, etc.)
+        - m61: DLC overworld (Land of Shadow)
+
+        Base game:
+        - m10-m19: Base game legacy dungeons (Stormveil, Leyndell, etc.)
+        - m30-m59: Base game mini-dungeons (catacombs, caves, etc.)
+        - m60: Base game overworld (Limgrave, Liurnia, Caelid, etc.)
+
+        MapId format: data = [data[0], data[1], data[2], data[3]]
+        Display format: "data[3] data[2] data[1] data[0]"
+        Map name: m{data[3]}_{data[2]}_{data[1]}_{data[0]:02d}
+
+        Examples:
+        - "60 42 36 0" → data=[0,36,42,60] → m60_42_36_00 → Limgrave (NOT DLC)
+        - "61 42 36 0" → data=[0,36,42,61] → m61_42_36_00 → DLC overworld
+        - "20 0 0 0"   → data=[0,0,0,20]   → m20_0_0_0    → DLC Belurat
+        - "21 0 0 0"   → data=[0,0,0,21]   → m21_0_0_0    → DLC Shadow Keep
+        - "11 10 0 0"  → data=[0,0,10,11]  → m11_10_0_0   → Roundtable (NOT DLC)
+
+        Returns:
+            True if this is a DLC Shadow of the Erdtree location
+        """
+        # Check the map prefix (data[3])
+        map_prefix = self.data[3]
+
+        # DLC includes:
+        # - m20-m29: DLC legacy dungeons
+        # - m61: DLC overworld
+        return (20 <= map_prefix <= 29) or (map_prefix == 61)
+
+    def to_bytes(self) -> bytes:
+        """
+        Convert MapId to bytes for writing to save file.
+
+        Returns:
+            4 bytes representing the map ID
+        """
+        return self.data
+
 
 # ============================================================================
 # GAITEM - Variable Length Structure (CRITICAL!)

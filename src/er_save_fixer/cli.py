@@ -46,7 +46,7 @@ def cmd_gui(_args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     save_path = Path(args.save).expanduser()
-    save = EldenRingSaveFile(str(save_path))
+    save = EldenRingSaveFile.from_file(str(save_path))
 
     for slot_idx in save.get_active_slots():
         slot = save.characters[slot_idx]
@@ -65,7 +65,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
     save_path = Path(args.save).expanduser()
     slot_idx = args.slot
 
-    save = EldenRingSaveFile(str(save_path))
+    save = EldenRingSaveFile.from_file(str(save_path))
     slot = save.characters[slot_idx]
     if not slot:
         raise RuntimeError(f"slot {slot_idx + 1} is empty or could not be parsed")
@@ -78,13 +78,6 @@ def cmd_fix(args: argparse.Namespace) -> int:
             backup_path.unlink()
         shutil.copy2(save_path, backup_path)
         actions.append(f"backup={backup_path.name}")
-
-    # Fix 1: Torrent bug
-    horse = slot.get_horse_data()
-    if horse and horse.has_bug():
-        horse.fix_bug()
-        slot.write_horse_data(horse)
-        actions.append("torrent_bug_fixed")
 
     # Fix 2: Corruption
     has_corruption, _issues = slot.has_corruption()
