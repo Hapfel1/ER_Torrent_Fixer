@@ -4,7 +4,9 @@ a = Analysis(
     ['scripts/er_save_fixer_gui_entry.py'],
     pathex=['src', 'scripts'],
     binaries=[],
-    datas=[],
+    datas=[
+        ('src/er_save_fixer/resources/eventflag_bst.txt', 'er_save_fixer/resources'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

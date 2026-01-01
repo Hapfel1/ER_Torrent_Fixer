@@ -330,10 +330,10 @@ class Save:
         Fix corruption issues in a character slot.
 
         Fixes:
-        1. Torrent bug: HP=0, State=ACTIVE → State=DEAD
-        2. SteamId: 0 → Copy from USER_DATA_10
-        3. Time: 00:00:00 → Calculate from seconds_played
-        4. Weather: AreaId=0 → Sync with MapId[3]
+        1. Torrent bug: HP=0, State=ACTIVE, State=DEAD
+        2. SteamId: 0 or not matching the one in USER_DATA_10, Copy from USER_DATA_10
+        3. Time: 00:00:00, Calculate from seconds_played
+        4. Weather: AreaId=0, Sync with MapId[3]
 
         Returns:
             (was_fixed, list_of_fixes)
@@ -361,16 +361,16 @@ class Save:
                     self._raw_data[
                         slot.horse_offset : slot.horse_offset + len(horse_data)
                     ] = horse_data
-                    fixes.append(f"torrent_bug:State changed to {horse.state.name}")
+                    fixes.append(f"State changed to {horse.state.name}")
 
         # Fix 2: SteamId corruption
-        if slot.has_steamid_corruption():
-            # Get SteamId from USER_DATA_10
-            if self.user_data_10_parsed and hasattr(
-                self.user_data_10_parsed, "steam_id"
-            ):
-                correct_steam_id = self.user_data_10_parsed.steam_id
+        # Get correct SteamId from USER_DATA_10
+        correct_steam_id = None
+        if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, "steam_id"):
+            correct_steam_id = self.user_data_10_parsed.steam_id
 
+        if slot.has_steamid_corruption(correct_steam_id):
+            if correct_steam_id is not None:
                 # Update in memory
                 slot.steam_id = correct_steam_id
 
@@ -382,7 +382,7 @@ class Save:
                     self._raw_data[slot.steamid_offset : slot.steamid_offset + 8] = (
                         steamid_bytes
                     )
-                    fixes.append(f"steamid_sync:SteamId set to {correct_steam_id}")
+                    fixes.append(f"SteamId set to {correct_steam_id}")
 
         # Fix 3: Time corruption
         # Get seconds_played from ProfileSummary
@@ -425,7 +425,7 @@ class Save:
                                 slot.time_offset : slot.time_offset + len(time_data)
                             ] = time_data
                             fixes.append(
-                                f"time_sync:Time set to {hours:02d}:{minutes:02d}:{seconds:02d}"
+                                f"Time set to {hours:02d}:{minutes:02d}:{seconds:02d}"
                             )
 
         # Fix 4: Weather corruption
@@ -443,7 +443,69 @@ class Save:
                     self._raw_data[
                         slot.weather_offset : slot.weather_offset + len(weather_data)
                     ] = weather_data
-                    fixes.append(f"weather_sync:AreaId set to {weather.area_id}")
+                    fixes.append(f"AreaId set to {weather.area_id}")
+
+        # Fix 5: Event flag corruption (Ranni quest + warp sickness)
+        # Check if slot has event flag issues
+        has_event_corruption, all_issues = slot.has_corruption()
+        event_flag_issues = [
+            issue for issue in all_issues if issue.startswith("eventflag:")
+        ]
+
+        if event_flag_issues:
+            try:
+                from .event_flags import CorruptionFixer
+
+                # Extract issue names (remove 'eventflag:' prefix)
+                issue_names = [
+                    issue.replace("eventflag:", "") for issue in event_flag_issues
+                ]
+
+                # Make event_flags mutable
+                event_flags_mutable = bytearray(slot.event_flags)
+
+                # Apply fixes
+                fixes_count, fix_descriptions = CorruptionFixer.fix_all(
+                    event_flags_mutable, issue_names
+                )
+
+                # Update character's event flags in memory
+                slot.event_flags = bytes(event_flags_mutable)
+
+                # Write back to raw data using the tracked offset
+                if hasattr(slot, "event_flags_offset") and slot.event_flags_offset > 0:
+                    self._raw_data[
+                        slot.event_flags_offset : slot.event_flags_offset
+                        + len(event_flags_mutable)
+                    ] = event_flags_mutable
+                else:
+                    # Fallback: calculate the offset if not tracked
+                    # This shouldn't happen with the updated parser
+                    HEADER_SIZE = 0x300 if self.magic == b"BND4" else 0x6C
+                    SLOT_SIZE = 0x280000
+                    CHECKSUM_SIZE = 0x10
+
+                    # Use the offset we found: 0x8F7 within character data
+                    EVENT_FLAGS_OFFSET_IN_SLOT = 0x8F7
+
+                    slot_start = HEADER_SIZE + (
+                        slot_index * (SLOT_SIZE + CHECKSUM_SIZE)
+                    )
+                    event_flags_start = (
+                        slot_start + CHECKSUM_SIZE + EVENT_FLAGS_OFFSET_IN_SLOT
+                    )
+                    self._raw_data[
+                        event_flags_start : event_flags_start + len(event_flags_mutable)
+                    ] = event_flags_mutable
+
+                # Add fix descriptions
+                for fix_desc in fix_descriptions:
+                    fixes.append(f"{fix_desc}")
+            except Exception:
+                # Log error but don't fail the whole fix operation
+                import traceback
+
+                traceback.print_exc()
 
         was_fixed = len(fixes) > 0
         return (was_fixed, fixes)

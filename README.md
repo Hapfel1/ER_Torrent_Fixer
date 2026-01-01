@@ -1,5 +1,5 @@
 # Elden Ring Save File Fixer
-Fixes infinite loading screens and corrupted save files in Elden Ring.
+Fixes infinite loading screens, corrupted save files and event flag related bugs in Elden Ring.
 
 ## What does this fix?
 
@@ -14,6 +14,14 @@ If you are stuck in a DLC location without owning the DLC, the game will not loa
 
 **General Loading Issues**
 Can teleport you back to Limgrave as a fallback fix for other infinite loading screen problems.
+
+**Event Flag related bugs**
+Automatically detects and fixes event flag related bugs listed below:
+- Softlocked/Stuck at Ranni's Tower
+- Radahn warp sickness (when dead or alive)
+- Morgott warp sickness
+- Radagon/Elden Beast warp sickness
+- Sealing Tree warp sickness
 
 ## Download
 [Get the latest release here](../../releases/latest)

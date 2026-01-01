@@ -52,7 +52,7 @@ class SaveFileFixer:
 
         ttk.Label(
             title_frame,
-            text="Fix infinite loading screen issues as well as save file corruption",
+            text="Fixes infinite loading screens, corrupted save files and event flag related bugs in Elden Ring.",
             font=("Segoe UI", 10),
         ).pack()
 
@@ -388,7 +388,14 @@ class SaveFileFixer:
             issues_detected.append("DLC infinite loading (needs teleport)")
 
         # Check 3: Corruption patterns
-        has_corruption, corruption_issues = slot.has_corruption()
+        # Get correct SteamID from USER_DATA_10
+        correct_steam_id = None
+        if self.save_file.user_data_10_parsed and hasattr(
+            self.save_file.user_data_10_parsed, "steam_id"
+        ):
+            correct_steam_id = self.save_file.user_data_10_parsed.steam_id
+
+        has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
         if has_corruption:
             for issue in corruption_issues:
                 # User-friendly issue messages
@@ -416,6 +423,18 @@ class SaveFileFixer:
                     issues_detected.append(f"Corruption: Time - {details}")
                 elif base_type == "steamid":
                     issues_detected.append(f"Corruption: SteamId - {details}")
+                elif base_type == "eventflag":
+                    # Map event flag issue names to user-friendly descriptions
+                    friendly_names = {
+                        "ranni_softlock": "Ranni's Tower Quest",
+                        "radahn_alive_warp": "Radahn Warp (Alive)",
+                        "radahn_dead_warp": "Radahn Warp (Dead)",
+                        "morgott_warp": "Morgott Warp",
+                        "radagon_warp": "Radagon Warp",
+                        "sealing_tree_warp": "Sealing Tree Warp (DLC)",
+                    }
+                    friendly = friendly_names.get(details, details)
+                    issues_detected.append(f"Quest/Warp: {friendly}")
                 else:
                     issues_detected.append(f"Corruption: {issue}")
 
@@ -650,7 +669,14 @@ class SaveFileFixer:
         has_dlc_location = map_id and map_id.is_dlc()
 
         # Check corruption
-        has_corruption, corruption_issues = slot.has_corruption()
+        # Get correct SteamID from USER_DATA_10
+        correct_steam_id = None
+        if self.save_file.user_data_10_parsed and hasattr(
+            self.save_file.user_data_10_parsed, "steam_id"
+        ):
+            correct_steam_id = self.save_file.user_data_10_parsed.steam_id
+
+        has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
 
         # Determine if teleport selection is needed
         # Only show teleport dialog if:
