@@ -330,8 +330,8 @@ class Save:
         Fix corruption issues in a character slot.
 
         Fixes:
-        1. Torrent bug: HP=0, State=ACTIVE to State=DEAD
-        2. SteamId: 0, Copy from USER_DATA_10
+        1. Torrent bug: HP=0, State=ACTIVE, State=DEAD
+        2. SteamId: 0 or not matching the one in USER_DATA_10, Copy from USER_DATA_10
         3. Time: 00:00:00, Calculate from seconds_played
         4. Weather: AreaId=0, Sync with MapId[3]
 
@@ -364,12 +364,13 @@ class Save:
                     fixes.append(f"State changed to {horse.state.name}")
 
         # Fix 2: SteamId corruption
-        if slot.has_steamid_corruption():
-            # Get SteamId from USER_DATA_10
-            if self.user_data_10_parsed and hasattr(
-                self.user_data_10_parsed, "steam_id"
-            ):
-                correct_steam_id = self.user_data_10_parsed.steam_id
+        # Get correct SteamId from USER_DATA_10
+        correct_steam_id = None
+        if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, "steam_id"):
+            correct_steam_id = self.user_data_10_parsed.steam_id
+        
+        if slot.has_steamid_corruption(correct_steam_id):
+            if correct_steam_id is not None:
 
                 # Update in memory
                 slot.steam_id = correct_steam_id

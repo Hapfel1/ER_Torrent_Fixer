@@ -430,6 +430,28 @@ class UserDataX:
         """Get character level"""
         return self.player_game_data.level
 
+    def get_slot_map_id(self):
+        """
+        Get the MapId object.
+        
+        Returns:
+            MapId object or None
+        """
+        if hasattr(self, "map_id"):
+            return self.map_id
+        return None
+
+    def get_horse_data(self):
+        """
+        Get the horse/Torrent data.
+        
+        Returns:
+            RideGameData object or None
+        """
+        if hasattr(self, "horse"):
+            return self.horse
+        return None
+
     def has_torrent_bug(self) -> bool:
         """Check if Torrent has the infinite loading bug (HP=0 with State=Active)"""
         if not hasattr(self, "horse") or self.horse is None:
@@ -509,18 +531,34 @@ class UserDataX:
 
         return False
 
-    def has_steamid_corruption(self) -> bool:
+    def has_steamid_corruption(self, correct_steam_id: int = None) -> bool:
         """
-        Check if SteamId is corrupted (set to 0).
-
+        Check if SteamId is corrupted.
+        
+        Checks:
+        1. SteamId is 0
+        2. If correct_steam_id provided, check if it doesn't match USER_DATA_10
+        
+        Args:
+            correct_steam_id: Expected SteamID from USER_DATA_10
+        
         Returns:
-            True if SteamId is 0
+            True if SteamId is corrupted
         """
         if not hasattr(self, "steam_id"):
             return False
-        return self.steam_id == 0
-
-    def has_corruption(self) -> tuple[bool, list[str]]:
+        
+        # Always corrupted if 0
+        if self.steam_id == 0:
+            return True
+        
+        # Check sync
+        if correct_steam_id is not None and correct_steam_id != 0:
+            if self.steam_id != correct_steam_id:
+                return True
+        
+        return False
+    def has_corruption(self, correct_steam_id: int = None) -> tuple[bool, list[str]]:
         """
         Check if this character slot has any corruption.
 
@@ -557,14 +595,13 @@ class UserDataX:
                 )
 
         # Check SteamId corruption
-        if self.has_steamid_corruption():
+        if self.has_steamid_corruption(correct_steam_id):
             issues.append(f"steamid_corruption:SteamId = {self.steam_id}")
 
         # Check event flag corruption (Ranni quest and warp sickness)
-        if hasattr(self, "event_flags") and self.event_flags:
+        if hasattr(self, 'event_flags') and self.event_flags:
             try:
                 from .event_flags import CorruptionDetector
-
                 event_issues = CorruptionDetector.detect_all(self.event_flags)
                 for issue in event_issues:
                     issues.append(f"eventflag:{issue}")
@@ -573,34 +610,3 @@ class UserDataX:
 
         has_corruption = len(issues) > 0
         return (has_corruption, issues)
-
-    def get_horse_data(self) -> RideGameData | None:
-        """
-        Get Torrent/horse data for this character slot.
-
-        Returns:
-            RideGameData if available, None otherwise
-        """
-        if hasattr(self, "horse") and self.horse is not None:
-            return self.horse
-        return None
-
-    def write_horse_data(self, horse: RideGameData):
-        """
-        Update Torrent/horse data for this character slot.
-
-        Args:
-            horse: New RideGameData to save
-        """
-        self.horse = horse
-
-    def get_slot_map_id(self) -> MapId | None:
-        """
-        Get the map ID for this character slot.
-
-        Returns:
-            MapId if available, None otherwise
-        """
-        if hasattr(self, "map_id") and self.map_id is not None:
-            return self.map_id
-        return None

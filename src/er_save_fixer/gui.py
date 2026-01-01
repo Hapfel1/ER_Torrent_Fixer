@@ -52,7 +52,7 @@ class SaveFileFixer:
 
         ttk.Label(
             title_frame,
-            text="Fix infinite loading screen issues as well as save file corruption",
+            text="Fixes infinite loading screens, corrupted save files and event flag related bugs in Elden Ring.",
             font=("Segoe UI", 10),
         ).pack()
 
@@ -388,7 +388,12 @@ class SaveFileFixer:
             issues_detected.append("DLC infinite loading (needs teleport)")
 
         # Check 3: Corruption patterns
-        has_corruption, corruption_issues = slot.has_corruption()
+        # Get correct SteamID from USER_DATA_10
+        correct_steam_id = None
+        if self.save_file.user_data_10_parsed and hasattr(self.save_file.user_data_10_parsed, "steam_id"):
+            correct_steam_id = self.save_file.user_data_10_parsed.steam_id
+        
+        has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
         if has_corruption:
             for issue in corruption_issues:
                 # User-friendly issue messages
@@ -662,7 +667,12 @@ class SaveFileFixer:
         has_dlc_location = map_id and map_id.is_dlc()
 
         # Check corruption
-        has_corruption, corruption_issues = slot.has_corruption()
+        # Get correct SteamID from USER_DATA_10
+        correct_steam_id = None
+        if self.save_file.user_data_10_parsed and hasattr(self.save_file.user_data_10_parsed, "steam_id"):
+            correct_steam_id = self.save_file.user_data_10_parsed.steam_id
+        
+        has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
 
         # Determine if teleport selection is needed
         # Only show teleport dialog if:
