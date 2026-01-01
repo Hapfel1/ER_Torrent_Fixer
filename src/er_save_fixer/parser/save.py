@@ -368,10 +368,9 @@ class Save:
         correct_steam_id = None
         if self.user_data_10_parsed and hasattr(self.user_data_10_parsed, "steam_id"):
             correct_steam_id = self.user_data_10_parsed.steam_id
-        
+
         if slot.has_steamid_corruption(correct_steam_id):
             if correct_steam_id is not None:
-
                 # Update in memory
                 slot.steam_id = correct_steam_id
 

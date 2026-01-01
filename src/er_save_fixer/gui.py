@@ -390,9 +390,11 @@ class SaveFileFixer:
         # Check 3: Corruption patterns
         # Get correct SteamID from USER_DATA_10
         correct_steam_id = None
-        if self.save_file.user_data_10_parsed and hasattr(self.save_file.user_data_10_parsed, "steam_id"):
+        if self.save_file.user_data_10_parsed and hasattr(
+            self.save_file.user_data_10_parsed, "steam_id"
+        ):
             correct_steam_id = self.save_file.user_data_10_parsed.steam_id
-        
+
         has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
         if has_corruption:
             for issue in corruption_issues:
@@ -669,9 +671,11 @@ class SaveFileFixer:
         # Check corruption
         # Get correct SteamID from USER_DATA_10
         correct_steam_id = None
-        if self.save_file.user_data_10_parsed and hasattr(self.save_file.user_data_10_parsed, "steam_id"):
+        if self.save_file.user_data_10_parsed and hasattr(
+            self.save_file.user_data_10_parsed, "steam_id"
+        ):
             correct_steam_id = self.save_file.user_data_10_parsed.steam_id
-        
+
         has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
 
         # Determine if teleport selection is needed

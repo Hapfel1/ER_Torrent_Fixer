@@ -433,7 +433,7 @@ class UserDataX:
     def get_slot_map_id(self):
         """
         Get the MapId object.
-        
+
         Returns:
             MapId object or None
         """
@@ -444,7 +444,7 @@ class UserDataX:
     def get_horse_data(self):
         """
         Get the horse/Torrent data.
-        
+
         Returns:
             RideGameData object or None
         """
@@ -534,30 +534,31 @@ class UserDataX:
     def has_steamid_corruption(self, correct_steam_id: int = None) -> bool:
         """
         Check if SteamId is corrupted.
-        
+
         Checks:
         1. SteamId is 0
         2. If correct_steam_id provided, check if it doesn't match USER_DATA_10
-        
+
         Args:
             correct_steam_id: Expected SteamID from USER_DATA_10
-        
+
         Returns:
             True if SteamId is corrupted
         """
         if not hasattr(self, "steam_id"):
             return False
-        
+
         # Always corrupted if 0
         if self.steam_id == 0:
             return True
-        
+
         # Check sync
         if correct_steam_id is not None and correct_steam_id != 0:
             if self.steam_id != correct_steam_id:
                 return True
-        
+
         return False
+
     def has_corruption(self, correct_steam_id: int = None) -> tuple[bool, list[str]]:
         """
         Check if this character slot has any corruption.
@@ -599,9 +600,10 @@ class UserDataX:
             issues.append(f"steamid_corruption:SteamId = {self.steam_id}")
 
         # Check event flag corruption (Ranni quest and warp sickness)
-        if hasattr(self, 'event_flags') and self.event_flags:
+        if hasattr(self, "event_flags") and self.event_flags:
             try:
                 from .event_flags import CorruptionDetector
+
                 event_issues = CorruptionDetector.detect_all(self.event_flags)
                 for issue in event_issues:
                     issues.append(f"eventflag:{issue}")
