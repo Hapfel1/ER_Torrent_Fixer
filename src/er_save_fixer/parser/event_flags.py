@@ -171,46 +171,43 @@ class FixFlags:
     """Event flag IDs used for corruption fixes."""
 
     # Ranni quest flags
-    RANNI_BLOCKING_FLAG = 3408
+    # Flag 1034500738 blocks progression when ON
+    RANNI_BLOCKING_FLAG = 1034500738
+
+    # All flags that need to be enabled for Ranni's quest to progress
+    # These cover: entering service, exhausting dialogues (Iji, Blaidd, Seluvis, Ranni)
     RANNI_FLAGS_TO_ENABLE = [
-        3420,
-        3421,
-        3422,
-        3423,
-        3424,
-        3425,
-        3426,
-        3427,
-        3428,
-        3429,
-        3430,
-        3431,
-        3432,
-        3433,
-        3434,
-        3435,
-        3436,
-        3437,
-        3438,
-        3439,
-        3440,
-        3441,
-        3442,
-        3443,
-        3444,
-        3445,
-        3446,
-        3447,
-        3448,
-        3449,
-        3450,
-        3451,
-        3452,
-        3453,
-        3454,
-        3455,
-        3456,
-        3457,
+        1034509410,
+        1034509412,
+        1034500732,
+        1034500736,
+        1034505015,
+        1034509361,
+        1034500715,
+        1034500710,
+        1034500700,
+        1034490701,
+        1034490700,
+        1034509413,
+        1034509418,
+        1034509355,
+        1034509357,
+        1034509358,
+        1034509205,
+        1045379208,
+        1034509305,
+        1034509306,
+        1034509417,
+        1034500734,
+        1034509416,
+        1034500739,
+        1034500733,
+        1034502610,
+        1034505002,
+        1034505003,
+        1034505004,
+        1034500716,
+        1034503600,
     ]
 
     # Warp sickness flags - Radahn
@@ -245,24 +242,10 @@ class CorruptionDetector:
         """
         Detect Ranni's Tower quest soft-lock.
 
-        The bug occurs when progression flags (3420-3457) are mostly OFF,
-        preventing dialogue progression. Flag 3408 being ON can also block it,
-        but the main issue is missing progression flags.
-
-        Detection: If more than 30 of the 38 progression flags are OFF
+        Checks if blocking flag 1034500738 is ON.
         """
         try:
-            # Check if blocking flag is ON
-            blocking_on = EventFlags.get_flag(event_flags, FixFlags.RANNI_BLOCKING_FLAG)
-
-            # Count how many progression flags are OFF
-            flags_off = 0
-            for flag_id in FixFlags.RANNI_FLAGS_TO_ENABLE:
-                if not EventFlags.get_flag(event_flags, flag_id):
-                    flags_off += 1
-
-            # Bug detected if blocking flag ON OR most progression flags OFF
-            return blocking_on or (flags_off > 30)
+            return EventFlags.get_flag(event_flags, FixFlags.RANNI_BLOCKING_FLAG)
         except ValueError:
             return False
 
@@ -377,12 +360,18 @@ class CorruptionFixer:
         """
         Fix Ranni's Tower quest soft-lock.
 
-        Sets blocking flag OFF and progression flags ON.
+        Matches Cheat Engine script behavior:
+        1. Set blocking flag 1034500738 OFF
+        2. Enable all 31 progression flags
         """
         try:
+            # Set blocking flag OFF
             EventFlags.set_flag(event_flags, FixFlags.RANNI_BLOCKING_FLAG, False)
+
+            # Enable all progression flags
             for flag_id in FixFlags.RANNI_FLAGS_TO_ENABLE:
                 EventFlags.set_flag(event_flags, flag_id, True)
+
             return True
         except Exception:
             return False

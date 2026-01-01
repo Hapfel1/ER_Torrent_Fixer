@@ -330,10 +330,10 @@ class Save:
         Fix corruption issues in a character slot.
 
         Fixes:
-        1. Torrent bug: HP=0, State=ACTIVE â†’ State=DEAD
-        2. SteamId: 0 â†’ Copy from USER_DATA_10
-        3. Time: 00:00:00 â†’ Calculate from seconds_played
-        4. Weather: AreaId=0 â†’ Sync with MapId[3]
+        1. Torrent bug: HP=0, State=ACTIVE to State=DEAD
+        2. SteamId: 0, Copy from USER_DATA_10
+        3. Time: 00:00:00, Calculate from seconds_played
+        4. Weather: AreaId=0, Sync with MapId[3]
 
         Returns:
             (was_fixed, list_of_fixes)
@@ -361,7 +361,7 @@ class Save:
                     self._raw_data[
                         slot.horse_offset : slot.horse_offset + len(horse_data)
                     ] = horse_data
-                    fixes.append(f"torrent_bug:State changed to {horse.state.name}")
+                    fixes.append(f"State changed to {horse.state.name}")
 
         # Fix 2: SteamId corruption
         if slot.has_steamid_corruption():
@@ -382,7 +382,7 @@ class Save:
                     self._raw_data[slot.steamid_offset : slot.steamid_offset + 8] = (
                         steamid_bytes
                     )
-                    fixes.append(f"steamid_sync:SteamId set to {correct_steam_id}")
+                    fixes.append(f"SteamId set to {correct_steam_id}")
 
         # Fix 3: Time corruption
         # Get seconds_played from ProfileSummary
@@ -425,7 +425,7 @@ class Save:
                                 slot.time_offset : slot.time_offset + len(time_data)
                             ] = time_data
                             fixes.append(
-                                f"time_sync:Time set to {hours:02d}:{minutes:02d}:{seconds:02d}"
+                                f"Time set to {hours:02d}:{minutes:02d}:{seconds:02d}"
                             )
 
         # Fix 4: Weather corruption
@@ -443,7 +443,7 @@ class Save:
                     self._raw_data[
                         slot.weather_offset : slot.weather_offset + len(weather_data)
                     ] = weather_data
-                    fixes.append(f"weather_sync:AreaId set to {weather.area_id}")
+                    fixes.append(f"AreaId set to {weather.area_id}")
 
         # Fix 5: Event flag corruption (Ranni quest + warp sickness)
         # Check if slot has event flag issues
@@ -500,7 +500,7 @@ class Save:
 
                 # Add fix descriptions
                 for fix_desc in fix_descriptions:
-                    fixes.append(f"eventflag:{fix_desc}")
+                    fixes.append(f"{fix_desc}")
             except Exception:
                 # Log error but don't fail the whole fix operation
                 import traceback

@@ -8,7 +8,6 @@ The actual implementation is in the parser/ subpackage.
 from __future__ import annotations
 
 from .parser.er_types import FloatVector3, FloatVector4, HorseState, MapId
-from .parser.event_flags import EventFlags, KnownFlags, validate_event_flags
 
 # Import from parser subpackage
 from .parser.save import Save, load_save
