@@ -55,5 +55,5 @@ Please open an issue first.
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
-Save file parsing based on [ClayAmore's Elden Ring Save Templates](https://github.com/ClayAmore/EldenRingSaveTemplate) and [ClayAmore's ER-Save-Lib](https://github.com/ClayAmore/ER-Save-Lib)
+Save file parsing based on [ClayAmore's Elden Ring Save Templates](https://github.com/ClayAmore/EldenRingSaveTemplate) and [ClayAmore's ER-Save-Lib](https://github.com/ClayAmore/ER-Save-Lib)\
 Event flag related bug fixes implemented with the help of [Umgak](https://github.com/Umgak)
