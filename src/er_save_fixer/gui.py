@@ -37,6 +37,10 @@ class SaveFileFixer:
         self.save_file = None
         self.selected_character = None
         self.detail_popup = None
+        self.clear_dlc_flag_var = None
+        self.clear_invalid_dlc_var = None
+        self.current_dlc_flag = False
+        self.current_invalid_dlc = False
 
         self.setup_ui()
 
@@ -383,6 +387,23 @@ class SaveFileFixer:
         else:
             info += "\nCould not find Torrent data\n"
 
+        # Check DLC flags status
+        has_dlc_flag = slot.has_dlc_flag()
+        has_invalid_dlc = False
+        if hasattr(slot, "dlc") and slot.dlc:
+            dlc = slot.dlc
+            info += "\nDLC Flags:\n"
+            info += (
+                f"  Shadow of the Erdtree: {'Yes' if dlc.shadow_of_erdtree else 'No'}\n"
+            )
+            info += (
+                f"  Pre-order The Ring: {'Yes' if dlc.preorder_the_ring else 'No'}\n"
+            )
+            info += f"  Pre-order Ring of Miquella: {'Yes' if dlc.preorder_ring_of_miquella else 'No'}\n"
+            has_invalid_dlc = dlc.has_invalid_flags()
+            if has_invalid_dlc:
+                info += "  WARNING: Invalid data in unused slots!\n"
+
         # Check 2: DLC location
         if map_id and map_id.is_dlc():
             issues_detected.append("DLC infinite loading (needs teleport)")
@@ -453,12 +474,16 @@ class SaveFileFixer:
             info += "\nYou can still teleport to Limgrave if\n"
             info += "you are experiencing an infinite loading screen."
 
+        # Store DLC flag status for checkbox
+        self.current_dlc_flag = has_dlc_flag
+        self.current_invalid_dlc = has_invalid_dlc
+
         # Create popup window
         self.detail_popup = tk.Toplevel(self.root)
         # Avoid flicker: position while hidden, then show
         self.detail_popup.withdraw()
         self.detail_popup.title(f"Character Details - {name}")
-        width, height = 550, 500
+        width, height = 550, 550  # Increased height for DLC info
         screen_w = self.detail_popup.winfo_screenwidth()
         screen_h = self.detail_popup.winfo_screenheight()
         x = (screen_w // 2) - (width // 2)
@@ -512,6 +537,46 @@ class SaveFileFixer:
         text_widget.bind("<<Paste>>", lambda e: "break")
         text_widget.bind("<Control-v>", lambda e: "break")
         text_widget.bind("<Button-2>", lambda e: "break")
+
+        # DLC flag checkboxes (show if flag is set or invalid data exists)
+        self.clear_dlc_flag_var = tk.BooleanVar(value=False)
+        self.clear_invalid_dlc_var = tk.BooleanVar(value=False)
+
+        if has_dlc_flag or has_invalid_dlc:
+            dlc_frame = ttk.Frame(self.detail_popup, padding="5")
+            dlc_frame.pack(fill=tk.X, padx=10)
+
+            if has_dlc_flag:
+                dlc_checkbox = ttk.Checkbutton(
+                    dlc_frame,
+                    text="Clear Shadow of the Erdtree flag (allows loading without DLC)",
+                    variable=self.clear_dlc_flag_var,
+                )
+                dlc_checkbox.pack(anchor=tk.W)
+
+                info_label = ttk.Label(
+                    dlc_frame,
+                    text="Use if someone teleported you out of the DLC but you cannot load the save file.",
+                    font=("Segoe UI", 8),
+                    foreground="gray",
+                )
+                info_label.pack(anchor=tk.W, padx=20)
+
+            if has_invalid_dlc:
+                invalid_checkbox = ttk.Checkbutton(
+                    dlc_frame,
+                    text="Clear invalid DLC data (fixes corrupted DLC flags)",
+                    variable=self.clear_invalid_dlc_var,
+                )
+                invalid_checkbox.pack(anchor=tk.W, pady=(5, 0))
+
+                invalid_info_label = ttk.Label(
+                    dlc_frame,
+                    text="Invalid data in unused DLC slots can prevent save from loading.",
+                    font=("Segoe UI", 8),
+                    foreground="gray",
+                )
+                invalid_info_label.pack(anchor=tk.W, padx=20)
 
         # Fix button in popup
         button_frame = ttk.Frame(self.detail_popup, padding="10")
@@ -678,12 +743,31 @@ class SaveFileFixer:
 
         has_corruption, corruption_issues = slot.has_corruption(correct_steam_id)
 
+        # Check if user wants to clear DLC flag
+        should_clear_dlc = (
+            hasattr(self, "clear_dlc_flag_var")
+            and self.clear_dlc_flag_var.get()
+            and slot.has_dlc_flag()
+        )
+
+        # Check if user wants to clear invalid DLC data
+        should_clear_invalid = (
+            hasattr(self, "clear_invalid_dlc_var")
+            and self.clear_invalid_dlc_var
+            and self.clear_invalid_dlc_var.get()
+            and hasattr(slot, "dlc")
+            and slot.dlc.has_invalid_flags()
+        )
+
         # Determine if teleport selection is needed
         # Only show teleport dialog if:
-        # 1. No issues at all (user wants preventive teleport)
+        # 1. No issues at all and not just clearing DLC flags (user wants preventive teleport)
         # 2. DLC location issue (requires teleport)
         needs_teleport_selection = (
-            not has_torrent_bug and not has_corruption
+            not has_torrent_bug
+            and not has_corruption
+            and not should_clear_dlc
+            and not should_clear_invalid
         ) or has_dlc_location
 
         teleport_location = None
@@ -705,12 +789,16 @@ class SaveFileFixer:
             if teleport_location is None:
                 return
         else:
-            # For Torrent bug and/or corruption, show simple confirmation
+            # For Torrent bug and/or corruption and/or DLC flags, show simple confirmation
             issues_list = []
             if has_torrent_bug:
                 issues_list.append("Torrent bug")
             if has_corruption:
                 issues_list.append(f"Corruption ({len(corruption_issues)} issues)")
+            if should_clear_dlc:
+                issues_list.append("Clear Shadow of the Erdtree flag")
+            if should_clear_invalid:
+                issues_list.append("Clear invalid DLC data")
 
             confirm_msg = (
                 f"Fix character: {name}\n\n"
@@ -759,6 +847,34 @@ class SaveFileFixer:
                 if was_fixed:
                     for fix in corruption_fixes:
                         fixed_issues.append(f"Corruption: {fix}")
+
+            # Fix DLC flag if checkbox was checked
+            should_clear_dlc = (
+                hasattr(self, "clear_dlc_flag_var")
+                and self.clear_dlc_flag_var
+                and self.clear_dlc_flag_var.get()
+            )
+            if should_clear_dlc and slot.has_dlc_flag():
+                self.status_var.set("Clearing DLC flag...")
+                self.root.update()
+                self.save_file.clear_character_dlc_flag(slot_idx)
+                fixed_issues.append("Shadow of the Erdtree flag cleared")
+
+            # Fix invalid DLC data if checkbox was checked
+            should_clear_invalid = (
+                hasattr(self, "clear_invalid_dlc_var")
+                and self.clear_invalid_dlc_var
+                and self.clear_invalid_dlc_var.get()
+            )
+            if (
+                should_clear_invalid
+                and hasattr(slot, "dlc")
+                and slot.dlc.has_invalid_flags()
+            ):
+                self.status_var.set("Clearing invalid DLC data...")
+                self.root.update()
+                self.save_file.clear_character_invalid_dlc(slot_idx)
+                fixed_issues.append("Invalid DLC data cleared")
 
             # Fix 3: Teleport (only if user selected a location)
             if teleport_location is not None:

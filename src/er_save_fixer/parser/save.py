@@ -510,6 +510,86 @@ class Save:
         was_fixed = len(fixes) > 0
         return (was_fixed, fixes)
 
+    def clear_character_dlc_flag(self, slot_index: int) -> bool:
+        """
+        Clear the DLC entry flag for a character slot.
+
+        When a character enters the Shadow of the Erdtree DLC, a flag is set
+        that prevents the character from loading if the DLC is not owned.
+        This method clears that flag.
+
+        Use case: Someone teleports your character out of the DLC but you
+        still cannot load because the flag remains set.
+
+        Args:
+            slot_index: Character slot index (0-9)
+
+        Returns:
+            True if flag was cleared, False if not needed or failed
+        """
+        if slot_index < 0 or slot_index >= 10:
+            raise IndexError(f"Slot index must be 0-9, got {slot_index}")
+
+        slot = self.character_slots[slot_index]
+        if slot.is_empty():
+            return False
+
+        if not slot.has_dlc_flag():
+            return False
+
+        # Clear the flag in memory
+        slot.clear_dlc_flag()
+
+        # Write the cleared DLC struct back to raw data
+        if hasattr(slot, "dlc_offset") and slot.dlc_offset > 0:
+            from io import BytesIO
+
+            dlc_bytes = BytesIO()
+            slot.dlc.write(dlc_bytes)
+            dlc_data = dlc_bytes.getvalue()
+            self._raw_data[slot.dlc_offset : slot.dlc_offset + len(dlc_data)] = dlc_data
+            return True
+
+        return False
+
+    def clear_character_invalid_dlc(self, slot_index: int) -> bool:
+        """
+        Clear invalid data in unused DLC flag slots.
+
+        When garbage data is written to the unused DLC slots [3-49],
+        the save cannot load. This method clears those slots.
+
+        Args:
+            slot_index: Character slot index (0-9)
+
+        Returns:
+            True if invalid data was cleared, False if not needed or failed
+        """
+        if slot_index < 0 or slot_index >= 10:
+            raise IndexError(f"Slot index must be 0-9, got {slot_index}")
+
+        slot = self.character_slots[slot_index]
+        if slot.is_empty():
+            return False
+
+        if not hasattr(slot, "dlc") or not slot.dlc.has_invalid_flags():
+            return False
+
+        # Clear the invalid data in memory
+        slot.dlc.clear_invalid_flags()
+
+        # Write the cleared DLC struct back to raw data
+        if hasattr(slot, "dlc_offset") and slot.dlc_offset > 0:
+            from io import BytesIO
+
+            dlc_bytes = BytesIO()
+            slot.dlc.write(dlc_bytes)
+            dlc_data = dlc_bytes.getvalue()
+            self._raw_data[slot.dlc_offset : slot.dlc_offset + len(dlc_data)] = dlc_data
+            return True
+
+        return False
+
 
 def load_save(filepath: str) -> Save:
     """

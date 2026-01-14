@@ -66,6 +66,7 @@ class UserDataX:
     weather_offset: int = 0
     time_offset: int = 0
     steamid_offset: int = 0
+    dlc_offset: int = 0
     # Header (4 + 4 + 8 + 16 = 32 bytes)
     version: int = 0
     map_id: MapId = field(default_factory=MapId)
@@ -78,7 +79,7 @@ class UserDataX:
     # Player data (0x1B0 = 432 bytes)
     player_game_data: PlayerGameData = field(default_factory=PlayerGameData)
 
-    # SP Effects (13 entries ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 16 bytes = 208 bytes, but actually reads different)
+    # SP Effects (13 entries, 16 bytes = 208 bytes, but actually reads different)
     sp_effects: list[SPEffect] = field(default_factory=list)
 
     # Equipment structures
@@ -401,6 +402,7 @@ class UserDataX:
         obj.steamid_offset = f.tell()
         obj.steam_id = struct.unpack("<Q", f.read(8))[0]
         obj.ps5_activity = PS5Activity.read(f)
+        obj.dlc_offset = f.tell()
         obj.dlc = DLC.read(f)
         obj.player_data_hash = PlayerGameDataHash.read(f)
 
@@ -558,6 +560,58 @@ class UserDataX:
                 return True
 
         return False
+
+    def has_dlc_flag(self) -> bool:
+        """
+        Check if DLC entry flag is set.
+
+        When this flag is non-zero, the character has entered the Shadow of the
+        Erdtree DLC area. This causes an infinite loading screen if the DLC is
+        not owned.
+
+        Returns:
+            True if DLC flag is set (character entered DLC)
+        """
+        if not hasattr(self, "dlc") or self.dlc is None:
+            return False
+        return self.dlc.has_dlc_flag()
+
+    def get_dlc_flag_value(self) -> int:
+        """Get the raw DLC flag value"""
+        if not hasattr(self, "dlc") or self.dlc is None:
+            return 0
+        return self.dlc.get_dlc_flag_value()
+
+    def clear_dlc_flag(self):
+        """
+        Clear the DLC entry flag.
+
+        This allows the character to load without owning the DLC.
+        Use this when someone else has teleported your character out of
+        the DLC but the flag is still set.
+        """
+        if hasattr(self, "dlc") and self.dlc is not None:
+            self.dlc.clear_dlc_flag()
+
+    def has_invalid_dlc(self) -> bool:
+        """
+        Check if DLC struct has invalid data in unused slots.
+
+        Returns:
+            True if unused DLC slots contain non-zero values
+        """
+        if not hasattr(self, "dlc") or self.dlc is None:
+            return False
+        return self.dlc.has_invalid_flags()
+
+    def clear_invalid_dlc(self):
+        """
+        Clear invalid data in unused DLC slots.
+
+        Sets all unused bytes [3-49] to 0.
+        """
+        if hasattr(self, "dlc") and self.dlc is not None:
+            self.dlc.clear_invalid_flags()
 
     def has_corruption(self, correct_steam_id: int = None) -> tuple[bool, list[str]]:
         """

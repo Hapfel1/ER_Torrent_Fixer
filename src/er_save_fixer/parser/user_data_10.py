@@ -134,7 +134,7 @@ class Profile:
     unk0x34: int = 0
     face_data: bytes = b""
     equipment: ProfileEquipment = None
-    gender: int = 0
+    body_type: int = 0
     archetype: int = 0
     starting_gift: int = 0
 
@@ -163,7 +163,7 @@ class Profile:
         obj.equipment = ProfileEquipment.read(f)
 
         # Character creation data
-        obj.gender = struct.unpack("<B", f.read(1))[0]
+        obj.body_type = struct.unpack("<B", f.read(1))[0]
         obj.archetype = struct.unpack("<B", f.read(1))[0]
         obj.starting_gift = struct.unpack("<B", f.read(1))[0]
 
